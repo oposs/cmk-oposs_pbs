@@ -94,7 +94,8 @@ Notes / gotchas baked into the design:
   obtainable by a REST agent (it needs a host-side index-walk of `.fidx`/`.didx` +
   `.chunks/`; out of scope — see §9). A future PBS will expose per-backup-group referenced
   /unique chunk size, computed during GC (Bugzilla #5799, RFC patches posted, not yet in
-  stable as of early 2026); §5 carries a forward hook for it.
+  stable as of early 2026); §5.1 treats it as a deferred, non-breaking extension (its
+  final field shape/granularity is unsettled — no placeholder committed now).
 - A **datastore-wide deduplication factor** *is* derivable from `gc-status`:
   `dedup_factor = index-data-bytes / disk-bytes` (logical referenced bytes ÷ actual
   on-disk chunk bytes — the ratio the PBS GUI shows). Reported on the Datastore service.
@@ -132,7 +133,7 @@ Piggyback sections (one block per mapped guest host):
   "last_backup": <epoch>, "backup_count": <int>,
   "interval": <seconds|null>, "interval_known": <bool>,
   "verify_state": "ok"|"failed"|"none",
-  "data_size": <bytes>, "ondisk_size": <bytes|null> }
+  "data_size": <bytes> }
 <<<<>>>>
 ```
 
@@ -175,10 +176,15 @@ to further bound API load.
   deduplicated on-disk footprint — per-guest real disk usage is not available from PBS
   (chunks are shared datastore-wide). Cached and re-emitted every run; refreshes when a
   new backup arrives (i.e. when the value can change).
-- **ondisk_size** = forward hook for Bugzilla #5799. `null` today (field absent from the
-  API). When a future PBS exposes per-backup-group referenced/unique chunk size, the agent
-  reads it and populates this, and the check emits `oposs_pbs_backup_ondisk` — no
-  redesign. Until then the metric simply isn't produced.
+- **Real on-disk footprint** is a *deferred* item, **not** a settled field. Bugzilla
+  #5799 is RFC-stage and its final API is unsettled in two ways: (a) shape — the
+  discussion favours a two-number model, *exclusive* (chunks used only by this group) vs
+  *shared*, not a single scalar; (b) granularity — currently per-backup-group, with
+  per-namespace still an open request. We therefore add **no placeholder field now**. When
+  #5799 ships, the agent adds fields mirroring its actual API and the check emits matching
+  metrics (e.g. `oposs_pbs_backup_exclusive` / `oposs_pbs_backup_shared`). The section
+  format is a plain JSON dict, so adding keys later is non-breaking — that extensibility
+  *is* the hook; no guessed field is committed today.
 - No check-side value-store learning is needed: the agent owns the interval via its cache.
 
 ## 6. Services
@@ -197,7 +203,7 @@ On guest hosts (piggyback):
 
 | Service | Item | State logic | Metrics |
 |---|---|---|---|
-| `PBS Backup %s` | `datastore[/ns]` | freshness: WARN at `warn_missed × interval` (def 2), CRIT at `crit_missed × interval` (def 3); `<2` snapshots → fallback interval (def 24 h). Verification: `failed`→CRIT, `ok`→OK, `none`→OK notice (param can bump to WARN). Shows age, interval, protected data size, backup count | `backup_age`, `backup_size`, `backup_ondisk` (only when #5799 field present) |
+| `PBS Backup %s` | `datastore[/ns]` | freshness: WARN at `warn_missed × interval` (def 2), CRIT at `crit_missed × interval` (def 3); `<2` snapshots → fallback interval (def 24 h). Verification: `failed`→CRIT, `ok`→OK, `none`→OK notice (param can bump to WARN). Shows age, interval, protected data size, backup count | `backup_age`, `backup_size` (real-footprint metrics deferred to #5799, §5.1) |
 
 GC stays folded into the Datastore service (matches inett and the REST model — GC is a
 per-datastore attribute, not a job-list entity).
