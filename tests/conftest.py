@@ -17,6 +17,7 @@ def load_module(relpath: str, name: str):
     path = PLUGIN / relpath
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod  # required for dataclasses to resolve deferred annotations
     spec.loader.exec_module(mod)
     return mod
 
