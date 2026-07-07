@@ -73,6 +73,7 @@ Endpoints used:
 | Datastore status | `GET /admin/datastore/{store}/status?verbose=1` | `total`, `used`, `avail` (bytes); `counts.{host,vm,ct,other}.{groups,snapshots}`; `gc-status{…}` |
 | Namespaces | `GET /admin/datastore/{store}/namespace` | `ns` |
 | Groups | `GET /admin/datastore/{store}/groups?ns={ns}` | `backup-type`, `backup-id`, `last-backup` (epoch int), `backup-count`, `comment`, `owner` |
+| Snapshots (per group) | `GET /admin/datastore/{store}/snapshots?ns=&backup-type=&backup-id=` | `backup-time` (epoch int) per snapshot; `verification` object `{state, upid}` (optional) |
 | Sync jobs | `GET /config/sync` | `id`, `store`, `remote` (opt), `remote-store`, `ns` (opt), `schedule`, `comment` |
 | Verify jobs | `GET /config/verify` | `id`, `store`, `ns` (opt), `schedule`, `comment` |
 | Prune jobs | `GET /config/prune` | `id`, `store`, `ns` (opt), `schedule`, `keep-*`, `disable`, `comment` |
@@ -93,9 +94,10 @@ Notes / gotchas baked into the design:
   formula). Dropped relative to the earlier draft.
 - Bare `prune` / `verify` / `verify_group` worker types are **manual one-off** operations,
   not scheduled jobs; we filter only the scheduled types above via `typefilter`.
-- Group **verification state is not on the group object** (only per snapshot, which is
-  expensive to list). Per-guest verification is therefore **not** tracked; verification
-  is monitored at the verify-job level, matching the inett plugin.
+- Group **verification state is not on the group object** — it lives per snapshot via
+  `/snapshots`. `SnapshotVerifyState.state` is exactly **`"ok"` or `"failed"`**; a
+  never-verified snapshot **omits** the `verification` object (that absence is the
+  "unverified/none" case).
 - `counts` may require `verbose=1`; confirm on a live box (see §10).
 
 ## 5. Agent output (sections)
@@ -118,12 +120,45 @@ Piggyback sections (one block per mapped guest host):
 <<<<{piggyback_host}>>>>
 <<<oposs_pbs_backup:sep(0)>>>
 { "datastore": "...", "ns": "...", "backup_type": "...", "backup_id": "...",
-  "last_backup": <epoch>, "backup_count": <int> }
+  "last_backup": <epoch>, "backup_count": <int>,
+  "interval": <seconds|null>, "interval_known": <bool>,
+  "verify_state": "ok"|"failed"|"none" }
 <<<<>>>>
 ```
 
 A guest backed up in multiple datastores/namespaces yields multiple JSON lines (one
 service per datastore/ns via the check item).
+
+### 5.1 Auto-interval + verification refresh (freshness feature)
+
+Absolute-hour freshness thresholds are wrong for PBS: guests *push* backups on their own
+cadence, which PBS does not know as a schedule. So freshness is expressed as **missed
+backups** against the group's **observed** interval, and the observed interval is derived
+from the group's snapshot timestamps.
+
+Fetching every group's snapshots on every run does not scale and is the load pattern the
+inett plugin explicitly avoided. Instead the agent keeps a small **per-host state cache**
+on the Checkmk server (`$OMD_ROOT/tmp/check_mk/oposs_pbs/<host>.json`) and fetches a
+group's `/snapshots` **only when something could have changed**:
+
+1. the group is **new** (no cache entry), or
+2. the group's `last-backup` **advanced** since the cache (new backup → recompute
+   interval, refresh verify state), or
+3. a **verify job covering that store/namespace finished** since the cache timestamp
+   (verify state may have flipped) — derived from the task list we already fetch.
+
+Otherwise the agent reuses the cached `interval` and `verify_state`. The cheap per-run
+path (datastore status + per-namespace `groups`) still yields every guest's `last_backup`
+every run, so the freshness **age** is always current; only the interval/verify refresh is
+gated. Recommended deployment: enable datasource caching (as the inett plugin ran hourly)
+to further bound API load.
+
+- **Interval** = median of consecutive gaps among the group's retained snapshot
+  `backup-time` values. Needs ≥2 snapshots; with fewer, `interval_known=false` and the
+  check falls back to a configurable default interval (default 24 h).
+- **verify_state** = newest snapshot's `verification.state` (`ok`/`failed`), or `none`
+  when the object is absent (never verified).
+- No check-side value-store learning is needed: the agent owns the interval via its cache.
 
 ## 6. Services
 
@@ -141,7 +176,7 @@ On guest hosts (piggyback):
 
 | Service | Item | State logic | Metrics |
 |---|---|---|---|
-| `PBS Backup %s` | `datastore[/ns]` | age of newest snapshot vs `SimpleLevels` (freshness, default warn 26 h / crit 50 h); shows backup count | `backup_age` |
+| `PBS Backup %s` | `datastore[/ns]` | freshness: WARN at `warn_missed × interval` (def 2), CRIT at `crit_missed × interval` (def 3); `<2` snapshots → fallback interval (def 24 h). Verification: `failed`→CRIT, `ok`→OK, `none`→OK notice (param can bump to WARN). Shows age, interval, backup count | `backup_age` |
 
 GC stays folded into the Datastore service (matches inett and the REST model — GC is a
 per-datastore attribute, not a job-list entity).
@@ -159,14 +194,18 @@ per-datastore attribute, not a job-list entity).
 - Task fetch limit (`Integer`, default 1000).
 - Piggyback host template: `String` with `{id}`, `{type}`, `{comment}` placeholders,
   default `{id}`; plus optional regex rewrite (pattern → replacement).
+- Freshness/piggyback: per-datastore opt-out of the piggyback backup service (skips the
+  gated `/snapshots` calls for that datastore).
 
 **Check parameters** (`CheckParameters`, `HostAndItemCondition` where item exists):
 
 - Datastore usage levels — `SimpleLevels` (%), default `("fixed", (80.0, 90.0))`.
 - GC age levels — optional `SimpleLevels` (seconds).
 - Per-job (sync/verify/prune) last-run age levels — optional `SimpleLevels` (seconds).
-- Backup freshness age levels — `SimpleLevels` (seconds),
-  default `("fixed", (26*3600, 50*3600))`.
+- Backup freshness (piggyback `PBS Backup`): `warn_missed` (`Integer`, default 2),
+  `crit_missed` (`Integer`, default 3), `fallback_interval` seconds (`TimeSpan`, default
+  24 h) used when the interval is not yet known, and `unverified_state` (OK/WARN, default
+  OK) controlling how a never-verified newest snapshot is graded.
 
 ## 8. Naming / entry-point conventions
 
@@ -189,6 +228,11 @@ manual (non-scheduled) task monitoring, and metric-history migration from inett.
 2. Whether `counts` appears in `/admin/datastore/{store}/status` without `verbose=1`.
 3. Whether a useful dedup indicator is worth computing from `gc-status` counters later
    (currently out of scope).
+4. Special-agent run cadence vs. `/snapshots` refresh load on large datastores — validate
+   the state-cache gating and recommend a datasource cache age on a live box (§5.1).
+5. `/nodes/{node}/tasks` `typefilter` accepts a single worker_type; confirm whether one
+   call with no filter (then filter client-side) or several filtered calls is cheaper
+   live.
 
 ## 11. Testing / deployment
 
