@@ -214,3 +214,61 @@ check_plugin_oposs_pbs_prune = CheckPlugin(
     name="oposs_pbs_prune", service_name="PBS Prune Job %s", sections=["oposs_pbs_jobs"],
     discovery_function=discover_oposs_pbs_prune, check_function=check_oposs_pbs_prune,
     check_ruleset_name="oposs_pbs_job", check_default_parameters=_JOB_DEFAULTS)
+
+
+# --- PBS Backup freshness (piggyback) ---------------------------------------
+
+def _backup_item(rec) -> str:
+    ns = rec.get("ns")
+    return f"{rec['datastore']}/{ns}" if ns else rec.get("datastore", "?")
+
+
+def discover_oposs_pbs_backup(section) -> DiscoveryResult:
+    if section and section.get("datastore"):
+        yield Service(item=_backup_item(section))
+
+
+def check_oposs_pbs_backup(item, params, section) -> CheckResult:
+    if not section or _backup_item(section) != item:
+        return
+    now = time.time()
+    last = section.get("last_backup") or 0
+    age = max(0.0, now - last)
+    interval = section.get("interval") if section.get("interval_known") \
+        else params.get("fallback_interval", 86400.0)
+    if not interval:
+        interval = params.get("fallback_interval", 86400.0)
+
+    warn_missed = params.get("warn_missed", 2)
+    crit_missed = params.get("crit_missed", 3)
+    levels = ("fixed", (warn_missed * interval, crit_missed * interval))
+    suffix = "" if section.get("interval_known") else " (assumed cadence)"
+    yield from check_levels(
+        age, levels_upper=levels, metric_name="oposs_pbs_backup_age",
+        label="Last backup age", render_func=render.timespan)
+    yield Result(state=State.OK, notice=(
+        f"Cadence ~{render.timespan(interval)}{suffix}, "
+        f"{section.get('backup_count', 0)} snapshots"))
+
+    size = section.get("data_size") or 0
+    yield Metric("oposs_pbs_backup_size", float(size))
+    yield Result(state=State.OK, notice=f"Protected data {render.bytes(size)}")
+
+    vstate = section.get("verify_state", "none")
+    if vstate == "failed":
+        yield Result(state=State.CRIT, summary="Newest snapshot verification failed")
+    elif vstate == "ok":
+        yield Result(state=State.OK, notice="Newest snapshot verified OK")
+    else:  # none / unverified
+        unver = State.WARN if params.get("unverified_state") == "warn" else State.OK
+        yield Result(state=unver, notice="Newest snapshot not verified")
+
+
+check_plugin_oposs_pbs_backup = CheckPlugin(
+    name="oposs_pbs_backup", service_name="PBS Backup %s",
+    sections=["oposs_pbs_backup"],
+    discovery_function=discover_oposs_pbs_backup,
+    check_function=check_oposs_pbs_backup,
+    check_ruleset_name="oposs_pbs_backup",
+    check_default_parameters={"warn_missed": 2, "crit_missed": 3,
+                              "fallback_interval": 86400.0, "unverified_state": "ok"})
