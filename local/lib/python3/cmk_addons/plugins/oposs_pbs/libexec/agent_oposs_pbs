@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Checkmk special agent for Proxmox Backup Server (REST, API-token auth)."""
+from __future__ import annotations
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import oposs_pbs_collect as collect_mod
+from oposs_pbs_cache import StateCache
+from oposs_pbs_client import PbsClient
+
+try:  # cmk.utils.password_store is not a stable API path; guard for offline use
+    from cmk.utils.password_store import replace_passwords
+except ImportError:
+    def replace_passwords():
+        return None
+
+
+def parse_args(argv):
+    p = argparse.ArgumentParser(description="Proxmox Backup Server special agent")
+    p.add_argument("hostaddress")
+    p.add_argument("--port", type=int, default=8007)
+    p.add_argument("--token-id", required=True)
+    p.add_argument("--token-secret", required=True)
+    p.add_argument("--no-verify-tls", action="store_true")
+    p.add_argument("--cacert")
+    p.add_argument("--include-datastore", action="append", default=[])
+    p.add_argument("--exclude-datastore", action="append", default=[])
+    p.add_argument("--task-limit", type=int, default=1000)
+    p.add_argument("--piggyback-template", default="{id}")
+    p.add_argument("--piggyback-regex")  # "PATTERN=REPLACEMENT"
+    p.add_argument("--no-piggyback-datastore", action="append", default=[])
+    p.add_argument("--cache-dir")
+    p.add_argument("--test-file")
+    p.add_argument("--now", type=int)  # test hook; real runs use time.time()
+    return p.parse_args(argv)
+
+
+class _FileClient:
+    def __init__(self, routes):
+        self._r = routes
+    def get(self, path, params=None):
+        return self._r.get(path)
+
+
+def _make_client(args):
+    if args.test_file:
+        with open(args.test_file, encoding="utf-8") as fh:
+            return _FileClient(json.load(fh))
+    return PbsClient(args.hostaddress, args.port, args.token_id, args.token_secret,
+                     verify=not args.no_verify_tls, cafile=args.cacert)
+
+
+def _cache_path(args):
+    base = args.cache_dir or os.path.join(
+        os.environ.get("OMD_ROOT", "/tmp"), "tmp", "check_mk", "oposs_pbs")
+    return os.path.join(base, f"{args.hostaddress}.json")
+
+
+def _print_section(name, payload):
+    print(f"<<<{name}:sep(0)>>>")
+    print(json.dumps(payload, separators=(",", ":")))
+
+
+def main(argv=None):
+    replace_passwords()
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    regex = None
+    if args.piggyback_regex and "=" in args.piggyback_regex:
+        pat, repl = args.piggyback_regex.split("=", 1)
+        regex = (pat, repl)
+    opts = collect_mod.Options(
+        include=args.include_datastore, exclude=args.exclude_datastore,
+        task_limit=args.task_limit, piggyback_template=args.piggyback_template,
+        piggyback_regex=regex, no_piggyback=set(args.no_piggyback_datastore))
+
+    import time
+    now = args.now if args.now is not None else int(time.time())
+    cache_path = _cache_path(args)
+    cache = StateCache.load(cache_path)
+    client = _make_client(args)
+
+    host, piggyback = collect_mod.collect(client, opts, cache, now)
+
+    _print_section("oposs_pbs_server", host.get("oposs_pbs_server", {}))
+    if "oposs_pbs_datastore" in host:
+        _print_section("oposs_pbs_datastore", host["oposs_pbs_datastore"])
+    if "oposs_pbs_jobs" in host:
+        _print_section("oposs_pbs_jobs", host["oposs_pbs_jobs"])
+
+    for host_name, record in piggyback:
+        if not host_name:
+            continue
+        print(f"<<<<{host_name}>>>>")
+        _print_section("oposs_pbs_backup", record)
+        print("<<<<>>>>")
+
+    try:
+        cache.save(cache_path)
+    except OSError:
+        pass
+    return 0 if host.get("oposs_pbs_server", {}).get("reachable") else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
