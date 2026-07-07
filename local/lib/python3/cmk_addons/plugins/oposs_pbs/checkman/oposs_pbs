@@ -1,0 +1,34 @@
+title: Proxmox Backup Server (REST API)
+agents: oposs_pbs
+catalog: os/storage
+license: GPLv2
+distribution: check_mk
+
+description:
+ Monitors a Proxmox Backup Server (PBS) via its REST API using an API token,
+ from the Checkmk server (no software installed on the PBS host).
+
+ Services:
+ - {PBS Server}: API reachability, version and node.
+ - {PBS Datastore <name>}: usage levels, backup/group counts, garbage-collection
+   state, and the datastore-wide deduplication factor (index-data-bytes /
+   disk-bytes from gc-status).
+ - {PBS Sync Job}, {PBS Verify Job}, {PBS Prune Job}: last scheduled-run state
+   with optional age levels.
+ - {PBS Backup <datastore>} (piggyback, on the guest's host): backup freshness as
+   "missed backups" against the observed snapshot interval, newest-snapshot
+   verification state, and the logical protected-data size.
+
+ Note on per-guest disk usage: PBS deduplicates chunks datastore-wide, so the
+ real on-disk footprint of a single guest is not available from the REST API.
+ The reported backup size is the logical (pre-dedup) protected data size. True
+ per-group usage requires a host-side index-walk (e.g. PBS_Chunk_Checker) and is
+ out of scope; native support is tracked upstream in Proxmox Bugzilla #5799.
+
+item:
+ The datastore name, job identifier, or datastore/namespace, depending on the
+ service.
+
+discovery:
+ One {PBS Server} service per PBS host; one service per datastore, per configured
+ job, and (piggyback) per backed-up guest.
