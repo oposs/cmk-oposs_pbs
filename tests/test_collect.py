@@ -55,3 +55,21 @@ def test_datastore_filtering():
     c = FakePbs(sample_routes(NOW))
     host, pig = collect.collect(c, opts, cache.StateCache({}), NOW)
     assert host["oposs_pbs_datastore"] == {} and pig == []
+
+
+class FailingClient:
+    """Fake client that raises on first get() call to simulate auth/connection failure."""
+    def get(self, path, params=None):
+        raise RuntimeError("401 unauthorized")
+
+
+def test_collect_handles_api_failure():
+    """Test that collect() handles connection/auth failures gracefully."""
+    c = FailingClient()
+    host, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
+
+    assert host["oposs_pbs_server"]["reachable"] is False
+    assert "401" in host["oposs_pbs_server"]["error"]
+    assert "oposs_pbs_datastore" not in host
+    assert "oposs_pbs_jobs" not in host
+    assert pig == []
