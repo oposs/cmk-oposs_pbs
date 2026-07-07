@@ -1,0 +1,4 @@
+*.mkp
+__pycache__/
+*.pyc
+.venv/
