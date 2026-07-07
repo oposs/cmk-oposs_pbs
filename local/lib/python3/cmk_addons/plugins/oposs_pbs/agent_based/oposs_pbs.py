@@ -124,3 +124,93 @@ check_plugin_oposs_pbs_datastore = CheckPlugin(
     check_ruleset_name="oposs_pbs_datastore",
     check_default_parameters={"usage_levels": ("fixed", (80.0, 90.0)),
                               "gc_age_levels": ("no_levels", None)})
+
+
+# --- Jobs: sync / verify / prune --------------------------------------------
+
+def _sync_item(job) -> str:
+    base = f"{job.get('remote', '?')}:{job.get('remote-store', '?')}"
+    ns = job.get("ns")
+    return f"{base} -> {ns}" if ns else base
+
+
+def _store_ns_item(job) -> str:
+    store = job.get("store", "?")
+    ns = job.get("ns")
+    return f"{store}/{ns}" if ns else store
+
+
+def _check_job(job, params, kind: str, metric: str) -> CheckResult:
+    if job is None:
+        return
+    if job.get("running"):
+        yield Result(state=State.OK, summary=f"{kind} running")
+        return
+    last = job.get("last_run")
+    if not last:
+        yield Result(state=State.OK, summary=f"No completed {kind} run yet")
+        return
+    status = last.get("status")
+    end = last.get("endtime")
+    if status == "OK":
+        if end:
+            age = max(0.0, time.time() - end)
+            yield from check_levels(age, levels_upper=params.get("age_levels"),
+                                    metric_name=metric, label=f"Last {kind}",
+                                    render_func=render.timespan)
+        else:
+            yield Result(state=State.OK, summary=f"Last {kind} OK")
+    else:
+        when = f" at {render.datetime(end)}" if end else ""
+        yield Result(state=State.CRIT, summary=f"Last {kind} failed{when}: {status}")
+
+
+def discover_oposs_pbs_sync(section) -> DiscoveryResult:
+    for j in (section or {}).get("sync", []):
+        if j.get("id"):
+            yield Service(item=_sync_item(j))
+
+
+def check_oposs_pbs_sync(item, params, section) -> CheckResult:
+    job = {(_sync_item(j)): j for j in (section or {}).get("sync", []) if j.get("id")}.get(item)
+    yield from _check_job(job, params, "sync", "oposs_pbs_sync_age")
+
+
+def discover_oposs_pbs_verify(section) -> DiscoveryResult:
+    for j in (section or {}).get("verify", []):
+        if j.get("id"):
+            yield Service(item=_store_ns_item(j))
+
+
+def check_oposs_pbs_verify(item, params, section) -> CheckResult:
+    job = {(_store_ns_item(j)): j for j in (section or {}).get("verify", []) if j.get("id")}.get(item)
+    yield from _check_job(job, params, "verification", "oposs_pbs_verify_age")
+
+
+def discover_oposs_pbs_prune(section) -> DiscoveryResult:
+    for j in (section or {}).get("prune", []):
+        if j.get("id"):
+            yield Service(item=_store_ns_item(j))
+
+
+def check_oposs_pbs_prune(item, params, section) -> CheckResult:
+    job = {(_store_ns_item(j)): j for j in (section or {}).get("prune", []) if j.get("id")}.get(item)
+    yield from _check_job(job, params, "prune", "oposs_pbs_prune_age")
+
+
+_JOB_DEFAULTS = {"age_levels": ("no_levels", None)}
+
+check_plugin_oposs_pbs_sync = CheckPlugin(
+    name="oposs_pbs_sync", service_name="PBS Sync Job %s", sections=["oposs_pbs_jobs"],
+    discovery_function=discover_oposs_pbs_sync, check_function=check_oposs_pbs_sync,
+    check_ruleset_name="oposs_pbs_job", check_default_parameters=_JOB_DEFAULTS)
+
+check_plugin_oposs_pbs_verify = CheckPlugin(
+    name="oposs_pbs_verify", service_name="PBS Verify Job %s", sections=["oposs_pbs_jobs"],
+    discovery_function=discover_oposs_pbs_verify, check_function=check_oposs_pbs_verify,
+    check_ruleset_name="oposs_pbs_job", check_default_parameters=_JOB_DEFAULTS)
+
+check_plugin_oposs_pbs_prune = CheckPlugin(
+    name="oposs_pbs_prune", service_name="PBS Prune Job %s", sections=["oposs_pbs_jobs"],
+    discovery_function=discover_oposs_pbs_prune, check_function=check_oposs_pbs_prune,
+    check_ruleset_name="oposs_pbs_job", check_default_parameters=_JOB_DEFAULTS)
