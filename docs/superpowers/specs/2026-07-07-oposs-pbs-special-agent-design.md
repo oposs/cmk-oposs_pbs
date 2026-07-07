@@ -90,8 +90,15 @@ Task `worker_type` / `worker_id` (verified against proxmox-backup source):
 
 Notes / gotchas baked into the design:
 
-- **No deduplication factor** exists in the API — we do not report one (no fabricated
-  formula). Dropped relative to the earlier draft.
+- **No *per-guest* deduplicated disk usage** exists in the PBS API today, and it is not
+  obtainable by a REST agent (it needs a host-side index-walk of `.fidx`/`.didx` +
+  `.chunks/`; out of scope — see §9). A future PBS will expose per-backup-group referenced
+  /unique chunk size, computed during GC (Bugzilla #5799, RFC patches posted, not yet in
+  stable as of early 2026); §5 carries a forward hook for it.
+- A **datastore-wide deduplication factor** *is* derivable from `gc-status`:
+  `dedup_factor = index-data-bytes / disk-bytes` (logical referenced bytes ÷ actual
+  on-disk chunk bytes — the ratio the PBS GUI shows). Reported on the Datastore service.
+  There is no single dedup *field*; we compute it from the two counters.
 - Bare `prune` / `verify` / `verify_group` worker types are **manual one-off** operations,
   not scheduled jobs; we filter only the scheduled types above via `typefilter`.
 - Group **verification state is not on the group object** — it lives per snapshot via
@@ -109,7 +116,9 @@ Host-bound sections:
 
 - `<<<oposs_pbs_server:sep(0)>>>` — one JSON: `{version, node, datastore_count, reachable}`.
 - `<<<oposs_pbs_datastore:sep(0)>>>` — one JSON keyed by datastore:
-  `{store: {total, used, avail, group_count, backup_count, gc: {status, endtime, running}}}`.
+  `{store: {total, used, avail, group_count, backup_count,
+  gc: {status, endtime, running, disk_bytes, index_data_bytes}}}`. The two `gc-status`
+  byte counters let the check compute the datastore-wide dedup factor.
 - `<<<oposs_pbs_jobs:sep(0)>>>` — one JSON: `{sync: [...], verify: [...], prune: [...]}`,
   each job carrying its config fields plus resolved `last_run: {status, endtime}` and
   `running: bool` from the task list.
@@ -122,7 +131,8 @@ Piggyback sections (one block per mapped guest host):
 { "datastore": "...", "ns": "...", "backup_type": "...", "backup_id": "...",
   "last_backup": <epoch>, "backup_count": <int>,
   "interval": <seconds|null>, "interval_known": <bool>,
-  "verify_state": "ok"|"failed"|"none" }
+  "verify_state": "ok"|"failed"|"none",
+  "data_size": <bytes>, "ondisk_size": <bytes|null> }
 <<<<>>>>
 ```
 
@@ -158,6 +168,17 @@ to further bound API load.
   check falls back to a configurable default interval (default 24 h).
 - **verify_state** = newest snapshot's `verification.state` (`ok`/`failed`), or `none`
   when the object is absent (never verified).
+- **data_size** = newest snapshot's `size` (bytes) = the **logical size of the protected
+  data** for that guest. In PBS a snapshot index references the *full* chunk set of the
+  backup (not just the incrementally-uploaded delta), so this is the guest's total
+  backed-up data size, useful for capacity/growth trending. It is explicitly **not** a
+  deduplicated on-disk footprint — per-guest real disk usage is not available from PBS
+  (chunks are shared datastore-wide). Cached and re-emitted every run; refreshes when a
+  new backup arrives (i.e. when the value can change).
+- **ondisk_size** = forward hook for Bugzilla #5799. `null` today (field absent from the
+  API). When a future PBS exposes per-backup-group referenced/unique chunk size, the agent
+  reads it and populates this, and the check emits `oposs_pbs_backup_ondisk` — no
+  redesign. Until then the metric simply isn't produced.
 - No check-side value-store learning is needed: the agent owns the interval via its cache.
 
 ## 6. Services
@@ -167,7 +188,7 @@ On the PBS host:
 | Service | Item | State logic | Metrics (`oposs_pbs_*`) |
 |---|---|---|---|
 | `PBS Server` | — | CRIT if API unreachable; else OK with version/node/datastore count | — |
-| `PBS Datastore %s` | datastore | usage `SimpleLevels` (default 80/90 %); GC: OK if last run OK, WARN on GC failure, running noted; UNKNOWN if never run | `datastore_size`, `datastore_used`, `datastore_avail`, `datastore_used_pct`, `group_count`, `backup_count`, `gc_age` |
+| `PBS Datastore %s` | datastore | usage `SimpleLevels` (default 80/90 %); GC: OK if last run OK, WARN on GC failure, running noted; UNKNOWN if never run; dedup factor shown | `datastore_size`, `datastore_used`, `datastore_avail`, `datastore_used_pct`, `group_count`, `backup_count`, `gc_age`, `dedup_factor` |
 | `PBS Sync Job %s` | `remote:store -> ns` | last-run OK → OK, else CRIT; never-run → OK notice; optional age levels | `sync_age` |
 | `PBS Verify Job %s` | `store[/ns]` | as sync | `verify_age` |
 | `PBS Prune Job %s` | `store[/ns]:id` | as sync (matched by store+ns) | `prune_age` |
@@ -176,7 +197,7 @@ On guest hosts (piggyback):
 
 | Service | Item | State logic | Metrics |
 |---|---|---|---|
-| `PBS Backup %s` | `datastore[/ns]` | freshness: WARN at `warn_missed × interval` (def 2), CRIT at `crit_missed × interval` (def 3); `<2` snapshots → fallback interval (def 24 h). Verification: `failed`→CRIT, `ok`→OK, `none`→OK notice (param can bump to WARN). Shows age, interval, backup count | `backup_age` |
+| `PBS Backup %s` | `datastore[/ns]` | freshness: WARN at `warn_missed × interval` (def 2), CRIT at `crit_missed × interval` (def 3); `<2` snapshots → fallback interval (def 24 h). Verification: `failed`→CRIT, `ok`→OK, `none`→OK notice (param can bump to WARN). Shows age, interval, protected data size, backup count | `backup_age`, `backup_size`, `backup_ondisk` (only when #5799 field present) |
 
 GC stays folded into the Datastore service (matches inett and the REST model — GC is a
 per-datastore attribute, not a job-list entity).
@@ -221,6 +242,14 @@ per-datastore attribute, not a job-list entity).
 Node OS health (CPU/mem/load), tape jobs, per-snapshot verification, S3 backend stats,
 manual (non-scheduled) task monitoring, and metric-history migration from inett.
 
+**Per-guest real (deduplicated) disk footprint** is explicitly out of scope: the only way
+to obtain it today is a host-side index-walk (parse a group's `.fidx`/`.didx`, dedupe
+chunk digests, sum unique chunk file sizes in `.chunks/` — e.g. `PBS_Chunk_Checker`),
+which requires local filesystem access on the PBS host and is minutes-long / I/O-heavy.
+That contradicts this plugin's server-side REST architecture. The `checkman` docs will
+state this, point users at Bugzilla #5799 for the upcoming native support, and note the
+`ondisk_size` forward hook (§5.1) that will light up automatically when PBS ships it.
+
 ## 10. Open items to confirm against a live PBS instance
 
 1. Exact JSON field name from `GET /nodes` (schema `returns` is empty); `localhost`
@@ -233,6 +262,20 @@ manual (non-scheduled) task monitoring, and metric-history migration from inett.
 5. `/nodes/{node}/tasks` `typefilter` accepts a single worker_type; confirm whether one
    call with no filter (then filter client-side) or several filtered calls is cheaper
    live.
+6. Confirm `gc-status` exposes `index-data-bytes` and `disk-bytes` on a live box and that
+   `index-data-bytes / disk-bytes` matches the GUI's dedup factor; guard against
+   division-by-zero before the first GC run.
+
+## 12. References
+
+- PBS API schema (authoritative): https://pbs.proxmox.com/docs/api-viewer/apidoc.js
+- proxmox-backup source (task worker types, `SnapshotVerifyState`):
+  https://github.com/proxmox/proxmox-backup — `pbs-api-types/src/datastore.rs`
+- Per-group dedup size (native support, in progress): Bugzilla #5799
+  https://bugzilla.proxmox.com/show_bug.cgi?id=5799
+- Host-side footprint tools (out of scope, for docs reference):
+  `PBS_Chunk_Checker` https://github.com/VoltKraft/PBS_Chunk_Checker ,
+  `PBSEstimator` https://github.com/Micinek/PBSEstimator
 
 ## 11. Testing / deployment
 
