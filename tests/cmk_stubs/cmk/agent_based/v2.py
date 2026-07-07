@@ -4,6 +4,9 @@ import enum
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
+CheckResult = Iterable[object]
+DiscoveryResult = Iterable[object]
+
 
 class State(enum.Enum):
     OK = 0
