@@ -18,10 +18,22 @@ def parse_json(string_table):
         return {}
 
 
+def parse_backup(string_table):
+    records = []
+    for row in string_table:
+        if not row:
+            continue
+        try:
+            records.append(json.loads(row[0]))
+        except (ValueError, IndexError, TypeError):
+            continue
+    return records
+
+
 agent_section_oposs_pbs_server = AgentSection(name="oposs_pbs_server", parse_function=parse_json)
 agent_section_oposs_pbs_datastore = AgentSection(name="oposs_pbs_datastore", parse_function=parse_json)
 agent_section_oposs_pbs_jobs = AgentSection(name="oposs_pbs_jobs", parse_function=parse_json)
-agent_section_oposs_pbs_backup = AgentSection(name="oposs_pbs_backup", parse_function=parse_json)
+agent_section_oposs_pbs_backup = AgentSection(name="oposs_pbs_backup", parse_function=parse_backup)
 
 
 # --- PBS Server -------------------------------------------------------------
@@ -224,17 +236,19 @@ def _backup_item(rec) -> str:
 
 
 def discover_oposs_pbs_backup(section) -> DiscoveryResult:
-    if section and section.get("datastore"):
-        yield Service(item=_backup_item(section))
+    for rec in section or []:
+        if rec.get("datastore"):
+            yield Service(item=_backup_item(rec))
 
 
 def check_oposs_pbs_backup(item, params, section) -> CheckResult:
-    if not section or _backup_item(section) != item:
+    rec = next((r for r in (section or []) if _backup_item(r) == item), None)
+    if rec is None:
         return
     now = time.time()
-    last = section.get("last_backup") or 0
+    last = rec.get("last_backup") or 0
     age = max(0.0, now - last)
-    interval = section.get("interval") if section.get("interval_known") \
+    interval = rec.get("interval") if rec.get("interval_known") \
         else params.get("fallback_interval", 86400.0)
     if not interval:
         interval = params.get("fallback_interval", 86400.0)
@@ -242,19 +256,19 @@ def check_oposs_pbs_backup(item, params, section) -> CheckResult:
     warn_missed = params.get("warn_missed", 2)
     crit_missed = params.get("crit_missed", 3)
     levels = ("fixed", (warn_missed * interval, crit_missed * interval))
-    suffix = "" if section.get("interval_known") else " (assumed cadence)"
+    suffix = "" if rec.get("interval_known") else " (assumed cadence)"
     yield from check_levels(
         age, levels_upper=levels, metric_name="oposs_pbs_backup_age",
         label="Last backup age", render_func=render.timespan)
     yield Result(state=State.OK, notice=(
         f"Cadence ~{render.timespan(interval)}{suffix}, "
-        f"{section.get('backup_count', 0)} snapshots"))
+        f"{rec.get('backup_count', 0)} snapshots"))
 
-    size = section.get("data_size") or 0
+    size = rec.get("data_size") or 0
     yield Metric("oposs_pbs_backup_size", float(size))
     yield Result(state=State.OK, notice=f"Protected data {render.bytes(size)}")
 
-    vstate = section.get("verify_state", "none")
+    vstate = rec.get("verify_state", "none")
     if vstate == "failed":
         yield Result(state=State.CRIT, summary="Newest snapshot verification failed")
     elif vstate == "ok":

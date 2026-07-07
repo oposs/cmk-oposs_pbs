@@ -40,7 +40,11 @@ def _commands(params: Params, host_config: HostConfig) -> Iterator[SpecialAgentC
         args += ["--piggyback-regex", params.piggyback_regex]
     for ds in params.no_piggyback:
         args += ["--no-piggyback-datastore", ds]
-    args.append(host_config.primary_ip_config.address or host_config.name)
+    try:
+        address = host_config.primary_ip_config.address
+    except (ValueError, RuntimeError):
+        address = host_config.name
+    args.append(address)
     yield SpecialAgentCommand(command_arguments=args)
 
 

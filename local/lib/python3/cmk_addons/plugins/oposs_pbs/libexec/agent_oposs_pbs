@@ -101,7 +101,9 @@ def main(argv=None):
         cache.save(cache_path)
     except OSError:
         pass
-    return 0 if host.get("oposs_pbs_server", {}).get("reachable") else 0
+    # Always exit 0: an unreachable PBS is surfaced via reachable:False in the
+    # oposs_pbs_server section (check reports CRIT), not via the agent exit code.
+    return 0
 
 
 if __name__ == "__main__":

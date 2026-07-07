@@ -22,7 +22,7 @@ def _states(res):
 
 def test_fresh_backup_ok(monkeypatch):
     monkeypatch.setattr(m.time, "time", lambda: NOW)
-    res = list(m.check_oposs_pbs_backup("main", DEFAULTS, rec()))
+    res = list(m.check_oposs_pbs_backup("main", DEFAULTS, [rec()]))
     assert State.WARN not in _states(res) and State.CRIT not in _states(res)
     mt = {r.name: r.value for r in res if isinstance(r, Metric)}
     assert mt["oposs_pbs_backup_size"] == 41_000_000_000
@@ -32,25 +32,47 @@ def test_fresh_backup_ok(monkeypatch):
 def test_missed_two_intervals_warns(monkeypatch):
     monkeypatch.setattr(m.time, "time", lambda: NOW)
     res = list(m.check_oposs_pbs_backup("main", DEFAULTS,
-                                        rec(last_backup=NOW - 2 * DAY - 10)))
+                                        [rec(last_backup=NOW - 2 * DAY - 10)]))
     assert State.WARN in _states(res)
 
 
 def test_missed_three_intervals_crit(monkeypatch):
     monkeypatch.setattr(m.time, "time", lambda: NOW)
     res = list(m.check_oposs_pbs_backup("main", DEFAULTS,
-                                        rec(last_backup=NOW - 3 * DAY - 10)))
+                                        [rec(last_backup=NOW - 3 * DAY - 10)]))
     assert State.CRIT in _states(res)
 
 
 def test_verify_failed_is_crit(monkeypatch):
     monkeypatch.setattr(m.time, "time", lambda: NOW)
-    res = list(m.check_oposs_pbs_backup("main", DEFAULTS, rec(verify_state="failed")))
+    res = list(m.check_oposs_pbs_backup("main", DEFAULTS, [rec(verify_state="failed")]))
     assert State.CRIT in _states(res)
 
 
 def test_unknown_interval_uses_fallback(monkeypatch):
     monkeypatch.setattr(m.time, "time", lambda: NOW)
     res = list(m.check_oposs_pbs_backup("main", DEFAULTS,
-               rec(interval=None, interval_known=False, last_backup=NOW - 3 * DAY)))
+               [rec(interval=None, interval_known=False, last_backup=NOW - 3 * DAY)]))
     assert State.CRIT in _states(res)  # 3 * fallback(1d) missed
+
+
+def test_discovery_yields_one_service_per_record():
+    section = [rec(), rec(datastore="backup2", verify_state="failed",
+                          last_backup=NOW - 5 * DAY)]
+    services = list(m.discover_oposs_pbs_backup(section))
+    assert [s.item for s in services] == ["main", "backup2"]
+
+
+def test_multi_record_section_second_datastore_not_dropped(monkeypatch):
+    # Regression test for C1: a guest backed up to multiple datastores/namespaces
+    # produces multiple piggyback records with the same host name, merged by
+    # Checkmk into one section with multiple json lines. All records must remain
+    # visible, not just the first.
+    monkeypatch.setattr(m.time, "time", lambda: NOW)
+    section = [rec(), rec(datastore="backup2", verify_state="failed",
+                          last_backup=NOW - 5 * DAY)]
+    res_backup2 = list(m.check_oposs_pbs_backup("backup2", DEFAULTS, section))
+    assert State.CRIT in _states(res_backup2)
+
+    res_main = list(m.check_oposs_pbs_backup("main", DEFAULTS, section))
+    assert State.WARN not in _states(res_main) and State.CRIT not in _states(res_main)

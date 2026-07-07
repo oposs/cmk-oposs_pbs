@@ -1,6 +1,6 @@
 """Metric, graph and perfometer definitions for oposs_pbs."""
 from cmk.graphing.v1 import Title
-from cmk.graphing.v1.graphs import Graph, MinimalRange
+from cmk.graphing.v1.graphs import Graph
 from cmk.graphing.v1.metrics import (
     Color, DecimalNotation, IECNotation, Metric, TimeNotation, Unit,
 )

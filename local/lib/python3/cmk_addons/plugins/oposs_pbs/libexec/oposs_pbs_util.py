@@ -68,6 +68,7 @@ def latest_verify_activity(tasks, store: str) -> int:
     for t in tasks:
         if t.get("worker_type") not in _VERIFY_TYPES or not _finished(t):
             continue
-        if (t.get("worker_id", "") or "").startswith(store):
+        wid = t.get("worker_id", "") or ""
+        if wid == store or wid.startswith(store + ":"):
             newest = max(newest, int(t["endtime"]))
     return newest

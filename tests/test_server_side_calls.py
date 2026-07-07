@@ -3,6 +3,17 @@ from cmk.server_side_calls.v1 import HostConfig, Secret
 ssc = load_module("server_side_calls/oposs_pbs.py", "oposs_pbs_ssc")
 
 
+class _NoIPHostConfig:
+    """Stand-in for a host with no resolvable IP: the real API raises
+    ValueError/RuntimeError from primary_ip_config rather than returning
+    something falsy."""
+    name = "pbs01"
+
+    @property
+    def primary_ip_config(self):
+        raise ValueError("no IP address configured for this host")
+
+
 def test_command_arguments_use_bare_secret_and_host_last():
     params = ssc.Params(token_id="root@pam!mon", token_secret=Secret(3),
                         verify_tls=True, task_limit=500,
@@ -19,3 +30,11 @@ def test_command_arguments_use_bare_secret_and_host_last():
     assert "--task-limit" in args and "500" in args
     assert "--piggyback-template" in args and "{type}-{id}" in args
     assert "--no-verify-tls" not in args                # verify default on
+
+
+def test_command_arguments_fall_back_to_host_name_when_no_ip():
+    params = ssc.Params(token_id="root@pam!mon", token_secret=Secret(3))
+    cmds = list(ssc.special_agent_oposs_pbs.commands_function(
+        params, _NoIPHostConfig()))
+    args = cmds[0].command_arguments
+    assert args[-1] == "pbs01"
