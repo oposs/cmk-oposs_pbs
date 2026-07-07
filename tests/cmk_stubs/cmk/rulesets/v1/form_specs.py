@@ -9,6 +9,10 @@ SimpleLevels = LevelDirection = DefaultValue = Password = _Rec
 CascadingSingleChoice = CascadingSingleChoiceElement = _Rec
 SingleChoice = SingleChoiceElement = List = TimeSpan = TimeMagnitude = _Rec
 RegularExpression = validators = _Rec
+Percentage = _Rec
+
+MatchingScope = type("MatchingScope", (), {"PREFIX": 0, "INFIX": 1, "FULL": 2})
+LevelsType = type("LevelsType", (), {"NONE": 0, "FIXED": 1})
 
 
 class _V:  # validators namespace

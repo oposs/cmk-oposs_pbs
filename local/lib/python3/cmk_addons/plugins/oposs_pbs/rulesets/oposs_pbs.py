@@ -1,9 +1,9 @@
 """GUI configuration: special-agent form and check-parameter forms."""
 from cmk.rulesets.v1 import Help, Label, Title
 from cmk.rulesets.v1.form_specs import (
-    BooleanChoice, DefaultValue, DictElement, Dictionary, Integer, List,
-    Password, RegularExpression, SimpleLevels, SingleChoice, SingleChoiceElement,
-    String, TimeSpan, TimeMagnitude, LevelDirection, validators,
+    BooleanChoice, DefaultValue, DictElement, Dictionary, Integer, LevelsType, List,
+    MatchingScope, Password, Percentage, RegularExpression, SimpleLevels, SingleChoice,
+    SingleChoiceElement, String, TimeSpan, TimeMagnitude, LevelDirection, validators,
 )
 from cmk.rulesets.v1.rule_specs import (
     CheckParameters, HostAndItemCondition, SpecialAgent, Topic,
@@ -33,10 +33,14 @@ def _agent_form() -> Dictionary:
                 title=Title("CA certificate file (path on the Checkmk server)"))),
             "datastore_include": DictElement(parameter_form=List(
                 title=Title("Only these datastores (regex)"),
-                element_template=RegularExpression(title=Title("Pattern")))),
+                element_template=RegularExpression(
+                    title=Title("Pattern"),
+                    predefined_help_text=MatchingScope.PREFIX))),
             "datastore_exclude": DictElement(parameter_form=List(
                 title=Title("Exclude these datastores (regex)"),
-                element_template=RegularExpression(title=Title("Pattern")))),
+                element_template=RegularExpression(
+                    title=Title("Pattern"),
+                    predefined_help_text=MatchingScope.PREFIX))),
             "task_limit": DictElement(parameter_form=Integer(
                 title=Title("Task list fetch limit"), prefill=DefaultValue(1000))),
             "piggyback_template": DictElement(parameter_form=String(
@@ -61,14 +65,15 @@ def _datastore_form() -> Dictionary:
     return Dictionary(elements={
         "usage_levels": DictElement(parameter_form=SimpleLevels(
             title=Title("Datastore usage levels"), level_direction=LevelDirection.UPPER,
-            form_spec_template=Integer(unit_symbol="%"),
+            form_spec_template=Percentage(),
             prefill_fixed_levels=DefaultValue((80.0, 90.0)))),
         "gc_age_levels": DictElement(parameter_form=SimpleLevels(
             title=Title("Maximum age since last garbage collection"),
             level_direction=LevelDirection.UPPER,
             form_spec_template=TimeSpan(displayed_magnitudes=[TimeMagnitude.DAY,
                                                               TimeMagnitude.HOUR]),
-            prefill_fixed_levels=DefaultValue((None, None)))),
+            prefill_levels_type=DefaultValue(LevelsType.NONE),
+            prefill_fixed_levels=DefaultValue((0.0, 0.0)))),
     })
 
 
@@ -85,7 +90,8 @@ def _job_form() -> Dictionary:
             level_direction=LevelDirection.UPPER,
             form_spec_template=TimeSpan(displayed_magnitudes=[TimeMagnitude.DAY,
                                                               TimeMagnitude.HOUR]),
-            prefill_fixed_levels=DefaultValue((None, None)))),
+            prefill_levels_type=DefaultValue(LevelsType.NONE),
+            prefill_fixed_levels=DefaultValue((0.0, 0.0)))),
     })
 
 
