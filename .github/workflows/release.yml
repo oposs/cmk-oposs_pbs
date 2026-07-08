@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Check branch
         run: |
@@ -46,7 +46,7 @@ jobs:
       release_date: ${{ steps.generate_version.outputs.release_date }}
     steps:
       - name: Checkout code with history
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -213,7 +213,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.create-tag.outputs.version }}
 
@@ -244,7 +244,7 @@ jobs:
           done
 
       - name: Upload MKP artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mkp-package
           path: ${{ steps.build_package.outputs.package-file }}
@@ -255,12 +255,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code for release notes
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.create-tag.outputs.version }}
 
       - name: Download MKP artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mkp-package
           path: ./
@@ -317,7 +317,7 @@ jobs:
 
       - name: Create Release
         id: create_release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.create-tag.outputs.version }}
           name: Release ${{ env.VERSION }}
