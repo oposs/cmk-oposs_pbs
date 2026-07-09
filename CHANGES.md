@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New
 
+### Changed
+
+### Fixed
+
+## 0.1.0 - 2026-07-09
+### New
 - Initial release. Server-side **special agent** monitoring Proxmox Backup Server
   (PBS) via its REST API with an API token — no software installed on the PBS host.
 - **PBS Server** service: API reachability, version and node.
@@ -28,6 +34,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rulesets for the special agent and for datastore-usage, job-age, and
   backup-freshness check parameters.
 
-### Changed
 
-### Fixed
