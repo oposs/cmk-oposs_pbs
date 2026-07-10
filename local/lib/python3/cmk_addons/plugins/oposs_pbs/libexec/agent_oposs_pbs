@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -29,6 +30,9 @@ def parse_args(argv):
     p.add_argument("--include-datastore", action="append", default=[])
     p.add_argument("--exclude-datastore", action="append", default=[])
     p.add_argument("--task-limit", type=int, default=1000)
+    p.add_argument("--timeout", type=int, default=60)  # per-request HTTP timeout
+    # Wall-clock ceiling on expensive /snapshots refreshes per run; 0 = unlimited.
+    p.add_argument("--refresh-budget", type=int, default=120)
     p.add_argument("--piggyback-template", default="{id}")
     p.add_argument("--piggyback-regex")  # "PATTERN=REPLACEMENT"
     p.add_argument("--no-piggyback-datastore", action="append", default=[])
@@ -50,7 +54,8 @@ def _make_client(args):
         with open(args.test_file, encoding="utf-8") as fh:
             return _FileClient(json.load(fh))
     return PbsClient(args.hostaddress, args.port, args.token_id, args.token_secret,
-                     verify=not args.no_verify_tls, cafile=args.cacert)
+                     verify=not args.no_verify_tls, cafile=args.cacert,
+                     timeout=args.timeout)
 
 
 def _cache_path(args):
@@ -82,7 +87,27 @@ def main(argv=None):
     cache = StateCache.load(cache_path)
     client = _make_client(args)
 
-    host, piggyback = collect_mod.collect(client, opts, cache, now)
+    def _save():
+        try:
+            cache.save(cache_path)
+        except OSError:
+            pass
+
+    # Persist forward progress if the fetcher kills us mid-collect, so cold
+    # datastores warm up over successive runs instead of restarting from zero.
+    def _on_term(_signum, _frame):
+        _save()
+        os._exit(0)
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(_sig, _on_term)
+        except (ValueError, OSError):
+            pass  # not in main thread (e.g. under test) -> skip
+
+    budget = collect_mod.RefreshBudget(
+        args.refresh_budget if args.refresh_budget > 0 else None)
+    host, piggyback = collect_mod.collect(client, opts, cache, now,
+                                          budget=budget, save=_save)
 
     _print_section("oposs_pbs_server", host.get("oposs_pbs_server", {}))
     if "oposs_pbs_datastore" in host:
@@ -97,10 +122,7 @@ def main(argv=None):
         _print_section("oposs_pbs_backup", record)
         print("<<<<>>>>")
 
-    try:
-        cache.save(cache_path)
-    except OSError:
-        pass
+    _save()
     # Always exit 0: an unreachable PBS is surfaced via reachable:False in the
     # oposs_pbs_server section (check reports CRIT), not via the agent exit code.
     return 0

@@ -32,6 +32,26 @@ def test_command_arguments_use_bare_secret_and_host_last():
     assert "--no-verify-tls" not in args                # verify default on
 
 
+def test_timeout_flag_emitted_only_when_set():
+    base = dict(token_id="root@pam!mon", token_secret=Secret(3))
+    no_to = list(ssc.special_agent_oposs_pbs.commands_function(
+        ssc.Params(**base), HostConfig(name="pbs01")))[0].command_arguments
+    assert "--timeout" not in no_to                     # unset -> agent default
+    with_to = list(ssc.special_agent_oposs_pbs.commands_function(
+        ssc.Params(**base, timeout=90), HostConfig(name="pbs01")))[0].command_arguments
+    assert with_to[with_to.index("--timeout") + 1] == "90"
+
+
+def test_refresh_budget_flag_emitted_only_when_set():
+    base = dict(token_id="root@pam!mon", token_secret=Secret(3))
+    off = list(ssc.special_agent_oposs_pbs.commands_function(
+        ssc.Params(**base), HostConfig(name="pbs01")))[0].command_arguments
+    assert "--refresh-budget" not in off
+    on = list(ssc.special_agent_oposs_pbs.commands_function(
+        ssc.Params(**base, refresh_budget=0), HostConfig(name="pbs01")))[0].command_arguments
+    assert on[on.index("--refresh-budget") + 1] == "0"  # 0 forwarded = unlimited
+
+
 def test_command_arguments_fall_back_to_host_name_when_no_ip():
     params = ssc.Params(token_id="root@pam!mon", token_secret=Secret(3))
     cmds = list(ssc.special_agent_oposs_pbs.commands_function(

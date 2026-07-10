@@ -43,6 +43,24 @@ def _agent_form() -> Dictionary:
                     predefined_help_text=MatchingScope.PREFIX))),
             "task_limit": DictElement(parameter_form=Integer(
                 title=Title("Task list fetch limit"), prefill=DefaultValue(1000))),
+            "timeout": DictElement(parameter_form=Integer(
+                title=Title("Per-request HTTP timeout"), unit_symbol="s",
+                help_text=Help(
+                    "Read timeout for a single PBS API request. Enumerating "
+                    "snapshots of a large backup group off slow (e.g. USB) "
+                    "storage can be slow on the first, cold read; raise this "
+                    "if such groups time out. A group that still times out is "
+                    "skipped for that run without failing the whole agent."),
+                prefill=DefaultValue(60))),
+            "refresh_budget": DictElement(parameter_form=Integer(
+                title=Title("Snapshot refresh budget per run"), unit_symbol="s",
+                help_text=Help(
+                    "Wall-clock ceiling on time spent enumerating snapshots per "
+                    "run. Once exceeded, the remaining backup groups report their "
+                    "last cached values and are refreshed on a later run, so a "
+                    "large datastore warms up gradually instead of exceeding the "
+                    "datasource timeout. Set 0 for no limit."),
+                prefill=DefaultValue(120))),
             "piggyback_template": DictElement(parameter_form=String(
                 title=Title("Piggyback host template"),
                 help_text=Help("Placeholders: {id} {type} {comment}"),

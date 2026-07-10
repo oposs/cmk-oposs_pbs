@@ -1,10 +1,66 @@
 """Collect PBS state via REST and shape it into Checkmk sections + piggyback."""
 from __future__ import annotations
 import re
+import sys
+import time
 from dataclasses import dataclass
 
 import oposs_pbs_util as u
 from oposs_pbs_cache import StateCache, group_key
+
+# Degraded piggyback fields used when a group's /snapshots refresh fails and
+# no previous value is cached. Chosen so the check reports "unknown cadence"
+# and "not verified" rather than raising a false alarm.
+_DEGRADED = {"interval": None, "interval_known": False,
+             "verify_state": "none", "data_size": 0}
+
+# Keep at most this many distinct last-backup timestamps per group; enough to
+# derive a stable median cadence without unbounded cache growth.
+_MAX_OBSERVATIONS = 32
+# Persist the cache at most this often while iterating a datastore, so a long
+# cold run that gets killed still leaves forward progress on disk.
+_SAVE_INTERVAL_S = 2.0
+
+
+def _warn(msg: str) -> None:
+    """Report a non-fatal collection error on stderr (never on stdout)."""
+    print(f"WARNING: {msg}", file=sys.stderr)
+
+
+class RefreshBudget:
+    """Wall-clock ceiling on time spent in expensive /snapshots refreshes.
+
+    Once exhausted, remaining groups emit cached/degraded data and stay
+    dirty, so a subsequent run drains the backlog. `limit=None` is unlimited.
+    """
+    def __init__(self, limit_s: float | None, clock=time.monotonic) -> None:
+        self.limit = limit_s
+        self._clock = clock
+        self.spent = 0.0
+
+    def allow(self) -> bool:
+        return self.limit is None or self.spent < self.limit
+
+    def record(self, dt: float) -> None:
+        self.spent += dt
+
+
+def _merge_observations(prev: dict | None, last_backup: int) -> list[int]:
+    obs = list(prev.get("observations", [])) if prev else []
+    if last_backup:
+        obs.append(last_backup)
+    return sorted(set(obs))[-_MAX_OBSERVATIONS:]
+
+
+def _effective_interval(entry: dict, observations: list[int]):
+    """Prefer the interval from a real snapshot fetch; otherwise fall back to
+    the cadence implied by observed last-backup timestamps."""
+    if entry.get("interval_known"):
+        return entry.get("interval"), True
+    iv = u.median_interval(observations)
+    if iv is not None:
+        return iv, True
+    return None, False
 
 
 @dataclass
@@ -105,7 +161,10 @@ def _refresh_group(client, store, ns, group, now):
     return interval, interval is not None, vstate, size
 
 
-def collect(client, opts: Options, cache: StateCache, now: int):
+def collect(client, opts: Options, cache: StateCache, now: int,
+            budget: "RefreshBudget | None" = None, save=None):
+    if budget is None:
+        budget = RefreshBudget(None)
     host: dict = {}
     try:
         version = (client.get("/version") or {}).get("version")
@@ -116,54 +175,120 @@ def collect(client, opts: Options, cache: StateCache, now: int):
         return host, []
 
     stores = select_datastores(stores_raw, opts)
-    tasks = client.get(f"/nodes/{node}/tasks",
-                       params={"limit": opts.task_limit}) or []
+    try:
+        tasks = client.get(f"/nodes/{node}/tasks",
+                           params={"limit": opts.task_limit}) or []
+    except Exception as exc:  # task history is best-effort; degrade job/GC state
+        _warn(f"task list fetch failed, job/GC state degraded: {exc}")
+        tasks = []
 
     host["oposs_pbs_server"] = {"reachable": True, "version": version,
                                "node": node, "datastore_count": len(stores)}
-    host["oposs_pbs_jobs"] = _collect_jobs(client, tasks)
+    try:
+        host["oposs_pbs_jobs"] = _collect_jobs(client, tasks)
+    except Exception as exc:
+        _warn(f"job config fetch failed: {exc}")
+        host["oposs_pbs_jobs"] = {"sync": [], "verify": [], "prune": []}
+
+    # Throttled incremental persistence: bounds data loss if a long cold run
+    # is killed before it finishes (see agent's SIGTERM handler).
+    saver = _Saver(save)
 
     datastores: dict = {}
     piggyback: list = []
     for store in stores:
-        status = client.get(f"/admin/datastore/{store}/status") or {}
-        gcs = status.get("gc-status") or {}
-        group_count = backup_count = 0
-        for ns in _namespaces(client, store):
-            groups = client.get(f"/admin/datastore/{store}/groups",
-                                params={"ns": ns}) or []
-            group_count += len(groups)
-            backup_count += sum(int(g.get("backup-count", 0)) for g in groups)
-            if store in opts.no_piggyback:
-                continue
-            verify_activity = u.latest_verify_activity(tasks, store)
-            for g in groups:
-                last_backup = int(g.get("last-backup", 0) or 0)
-                key = group_key(store, ns, g["backup-type"], g["backup-id"])
-                if cache.needs_refresh(key, last_backup, verify_activity):
+        # One unreachable/slow datastore must not sink the others.
+        try:
+            _collect_store(client, store, opts, cache, tasks, now,
+                           datastores, piggyback, budget, saver)
+        except Exception as exc:
+            _warn(f"datastore {store!r} collection failed, skipped: {exc}")
+        saver.flush()
+    host["oposs_pbs_datastore"] = datastores
+    return host, piggyback
+
+
+class _Saver:
+    def __init__(self, save):
+        self._save = save
+        self._last = None
+
+    def maybe(self):
+        if self._save is None:
+            return
+        t = time.monotonic()
+        if self._last is None or (t - self._last) >= _SAVE_INTERVAL_S:
+            self._save()
+            self._last = t
+
+    def flush(self):
+        if self._save is not None:
+            self._save()
+            self._last = time.monotonic()
+
+
+def _collect_store(client, store, opts, cache, tasks, now, datastores,
+                   piggyback, budget, saver):
+    status = client.get(f"/admin/datastore/{store}/status") or {}
+    gcs = status.get("gc-status") or {}
+    group_count = backup_count = 0
+    for ns in _namespaces(client, store):
+        groups = client.get(f"/admin/datastore/{store}/groups",
+                            params={"ns": ns}) or []
+        group_count += len(groups)
+        backup_count += sum(int(g.get("backup-count", 0)) for g in groups)
+        if store in opts.no_piggyback:
+            continue
+        verify_activity = u.latest_verify_activity(tasks, store)
+        for g in groups:
+            last_backup = int(g.get("last-backup", 0) or 0)
+            key = group_key(store, ns, g["backup-type"], g["backup-id"])
+            prev = cache.get(key)
+            observations = _merge_observations(prev, last_backup)
+            refreshed = False
+            if cache.needs_refresh(key, last_backup, verify_activity) \
+                    and budget.allow():
+                t0 = time.monotonic()
+                try:
                     interval, known, vstate, size = _refresh_group(
                         client, store, ns, g, now)
                     cache.put(key, {"last_backup": last_backup,
                                     "verify_checked_at": verify_activity,
                                     "interval": interval, "interval_known": known,
-                                    "verify_state": vstate, "data_size": size})
-                e = cache.get(key)
-                host_name = u.piggyback_host(opts.piggyback_template, g,
-                                             opts.piggyback_regex)
-                piggyback.append((host_name, {
-                    "datastore": store, "ns": ns,
-                    "backup_type": g["backup-type"], "backup_id": g["backup-id"],
-                    "last_backup": last_backup, "backup_count": int(g.get("backup-count", 0)),
-                    "interval": e["interval"], "interval_known": e["interval_known"],
-                    "verify_state": e["verify_state"], "data_size": e["data_size"],
-                }))
-        datastores[store] = {
-            "total": status.get("total"), "used": status.get("used"),
-            "avail": status.get("avail"),
-            "group_count": group_count, "backup_count": backup_count,
-            "gc": {**_gc_state(tasks, store),
-                   "index_data_bytes": gcs.get("index-data-bytes"),
-                   "disk_bytes": gcs.get("disk-bytes")},
-        }
-    host["oposs_pbs_datastore"] = datastores
-    return host, piggyback
+                                    "verify_state": vstate, "data_size": size,
+                                    "observations": observations})
+                    refreshed = True
+                except Exception as exc:
+                    # Slow/failed /snapshots: keep any prior cached value (do
+                    # NOT mark fresh, so needs_refresh stays true and we retry
+                    # next run once PBS has warmed its manifest cache).
+                    _warn(f"snapshot refresh failed for {store}/{ns} "
+                          f"{g['backup-type']}/{g['backup-id']}: {exc}")
+                finally:
+                    budget.record(time.monotonic() - t0)
+                saver.maybe()
+            if not refreshed:
+                # No fresh snapshot data (unchanged, budget-capped, or failed):
+                # keep prior fields but persist the growing observation history.
+                entry = dict(prev) if prev else dict(_DEGRADED)
+                entry["observations"] = observations
+                cache.put(key, entry)
+            e = cache.get(key)
+            interval, interval_known = _effective_interval(e, observations)
+            host_name = u.piggyback_host(opts.piggyback_template, g,
+                                         opts.piggyback_regex)
+            piggyback.append((host_name, {
+                "datastore": store, "ns": ns,
+                "backup_type": g["backup-type"], "backup_id": g["backup-id"],
+                "last_backup": last_backup, "backup_count": int(g.get("backup-count", 0)),
+                "interval": interval, "interval_known": interval_known,
+                "verify_state": e["verify_state"], "data_size": e["data_size"],
+            }))
+    datastores[store] = {
+        "total": status.get("total"), "used": status.get("used"),
+        "avail": status.get("avail"),
+        "group_count": group_count, "backup_count": backup_count,
+        "gc": {**_gc_state(tasks, store),
+               "index_data_bytes": gcs.get("index-data-bytes"),
+               "disk_bytes": gcs.get("disk-bytes")},
+    }

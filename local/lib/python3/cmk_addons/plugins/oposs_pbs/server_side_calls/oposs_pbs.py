@@ -16,6 +16,8 @@ class Params(BaseModel):
     datastore_include: list[str] = []
     datastore_exclude: list[str] = []
     task_limit: int = 1000
+    timeout: int | None = None
+    refresh_budget: int | None = None
     piggyback_template: str = "{id}"
     piggyback_regex: str | None = None
     no_piggyback: list[str] = []
@@ -35,6 +37,10 @@ def _commands(params: Params, host_config: HostConfig) -> Iterator[SpecialAgentC
     for pat in params.datastore_exclude:
         args += ["--exclude-datastore", pat]
     args += ["--task-limit", str(params.task_limit)]
+    if params.timeout:
+        args += ["--timeout", str(params.timeout)]
+    if params.refresh_budget is not None:
+        args += ["--refresh-budget", str(params.refresh_budget)]
     args += ["--piggyback-template", params.piggyback_template]
     if params.piggyback_regex:
         args += ["--piggyback-regex", params.piggyback_regex]
