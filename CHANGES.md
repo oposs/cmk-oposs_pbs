@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+### Fixed
+
+## 0.2.0 - 2026-07-10
+### Changed
 - The special agent now **degrades gracefully** instead of aborting: a slow or
   failing datastore, task-list, job-config, or per-group `/snapshots` call is
   logged to stderr and skipped, and the remaining sections are still emitted.
@@ -30,7 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read timeout; both it and the refresh budget are exposed in the agent ruleset.
 
 ### Fixed
-
 - A single slow backup group no longer produces a traceback and zero output; this
   previously broke all monitoring for a PBS host whose datastore held large backup
   groups on slow storage.
