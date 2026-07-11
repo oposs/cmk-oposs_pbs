@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The API-token secret is now resolved correctly when passed from the GUI via the
+  Checkmk password store. `replace_passwords()` does not rewrite the inline
+  `<id>:<file>` reference produced for a bare `Secret`, so the agent was sending
+  the raw reference as the secret and every request failed with `401
+  Unauthorized`; the reference is now resolved explicitly via
+  `password_store.lookup()`.
+
 ## 0.2.0 - 2026-07-10
 ### Changed
 - The special agent now **degrades gracefully** instead of aborting: a slow or

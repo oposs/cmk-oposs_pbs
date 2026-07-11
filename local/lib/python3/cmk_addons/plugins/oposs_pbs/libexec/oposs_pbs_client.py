@@ -1,7 +1,34 @@
 """Thin Proxmox Backup Server REST client (API-token auth)."""
 from __future__ import annotations
+from pathlib import Path
 from typing import Any
+import os
 import requests
+
+
+def resolve_password_ref(value: str, *, _lookup=None) -> str:
+    """Resolve a Checkmk password-store reference of the form ``<id>:<file>``
+    to the real secret.
+
+    Server-side calls pass a bare ``Secret`` as ``<pw_id>:<pw_store_file>``.
+    ``password_store.replace_passwords()`` does NOT rewrite this inline form, so
+    the agent must resolve it explicitly via ``password_store.lookup()``.
+
+    Anything that is not a live reference (no ``:``, or the file part does not
+    exist) is returned unchanged, so an inline/test secret still works.
+    """
+    if ":" not in value:
+        return value
+    pw_id, pw_file = value.split(":", 1)
+    if not pw_file or not os.path.exists(pw_file):
+        return value
+    lookup = _lookup
+    if lookup is None:
+        try:
+            from cmk.utils.password_store import lookup
+        except ImportError:
+            return value
+    return lookup(Path(pw_file), pw_id)
 
 
 class PbsError(Exception):

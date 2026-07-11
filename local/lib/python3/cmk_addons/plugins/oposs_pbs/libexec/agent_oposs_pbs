@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import oposs_pbs_collect as collect_mod
 from oposs_pbs_cache import StateCache
-from oposs_pbs_client import PbsClient
+from oposs_pbs_client import PbsClient, resolve_password_ref
 
 try:  # cmk.utils.password_store is not a stable API path; guard for offline use
     from cmk.utils.password_store import replace_passwords
@@ -70,8 +70,12 @@ def _print_section(name, payload):
 
 
 def main(argv=None):
-    replace_passwords()
+    replace_passwords()  # best-effort: resolves the legacy --pwstore argv form
     args = parse_args(argv if argv is not None else sys.argv[1:])
+    # server_side_calls passes the token as a bare Secret, i.e. an inline
+    # "<pw_id>:<pw_store_file>" reference that replace_passwords() leaves
+    # untouched; resolve it explicitly to the real secret.
+    args.token_secret = resolve_password_ref(args.token_secret)
     regex = None
     if args.piggyback_regex and "=" in args.piggyback_regex:
         pat, repl = args.piggyback_regex.split("=", 1)
