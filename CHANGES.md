@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## 0.2.1 - 2026-07-12
+### Fixed
 - The API-token secret is now resolved correctly when passed from the GUI via the
   Checkmk password store. `replace_passwords()` does not rewrite the inline
   `<id>:<file>` reference produced for a bare `Secret`, so the agent was sending
