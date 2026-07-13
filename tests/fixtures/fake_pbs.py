@@ -35,7 +35,7 @@ def sample_routes(now):
                           "remote-store": "rs", "ns": "", "schedule": "daily"}],
         "/config/verify": [{"id": "v1", "store": "main", "schedule": "weekly"}],
         "/config/prune": [{"id": "p1", "store": "main", "schedule": "daily"}],
-        "/nodes/pbs01/tasks": [
+        "/nodes/localhost/tasks": [
             {"worker_type": "garbage_collection", "worker_id": "main",
              "starttime": now - 3600, "endtime": now - 3500, "status": "OK"},
             {"worker_type": "syncjob", "worker_id": "r1:rs:main::s1",

@@ -73,13 +73,16 @@ class Options:
     no_piggyback: set
 
 
-def node_name(client) -> str:
-    try:
-        nodes = client.get("/nodes") or []
-        if nodes and nodes[0].get("node"):
-            return nodes[0]["node"]
-    except Exception:
-        pass
+def node_name(_client=None) -> str:
+    """Return the local PBS node identifier for node-scoped API paths.
+
+    PBS always exposes the local node under the ``localhost`` alias
+    (``/nodes/localhost/tasks``, ``.../status`` etc.), so we use it directly.
+    The ``/nodes`` *index* endpoint requires more than the ``Audit`` privilege
+    our least-privilege monitoring token holds and returns 403 — probing it
+    yields nothing but a per-run "permission check failed" entry in the PBS
+    log, so we deliberately never call it.
+    """
     return "localhost"
 
 

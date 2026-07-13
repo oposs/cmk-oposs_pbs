@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- The agent no longer probes the PBS `/nodes` index. That endpoint requires more
+  than the `Audit` privilege a least-privilege monitoring token holds, so every
+  run logged a `403 ... permission check failed` on the PBS host. The local node
+  is always reachable via the `localhost` alias (`/nodes/localhost/tasks` etc.),
+  which we now use directly — collection was already unaffected (it fell back to
+  `localhost`), but the recurring server-side 403 log entry is now gone.
 
 ## 0.2.1 - 2026-07-12
 ### Fixed

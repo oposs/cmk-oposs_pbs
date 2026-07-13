@@ -21,7 +21,7 @@ def test_collect_builds_all_sections():
     host, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
 
     assert host["oposs_pbs_server"]["reachable"] is True
-    assert host["oposs_pbs_server"]["node"] == "pbs01"
+    assert host["oposs_pbs_server"]["node"] == "localhost"
     ds = host["oposs_pbs_datastore"]["main"]
     assert ds["used"] == 250 and ds["group_count"] == 1 and ds["backup_count"] == 7
     assert ds["gc"]["status"] == "OK"
@@ -37,6 +37,18 @@ def test_collect_builds_all_sections():
     assert rec["verify_state"] == "ok"
     assert rec["data_size"] == 41_000_000_000
     assert rec["last_backup"] == NOW - 100
+
+
+def test_node_index_not_probed_localhost_alias_used():
+    """The PBS /nodes index needs more than the Audit privilege our
+    least-privilege monitoring token holds, so probing it only yields a 403
+    (logged server-side every run). We must never call it: the always-valid
+    'localhost' alias is used for node-scoped paths instead."""
+    c = FakePbs(sample_routes(NOW))
+    host, _ = collect.collect(c, _opts(), cache.StateCache({}), NOW)
+    assert host["oposs_pbs_server"]["node"] == "localhost"
+    assert not any(p == "/nodes" for p, _ in c.calls)      # never probed
+    assert any(p == "/nodes/localhost/tasks" for p, _ in c.calls)
 
 
 def test_snapshots_not_refetched_when_unchanged():
