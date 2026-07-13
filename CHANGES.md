@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+## 0.2.2 - 2026-07-13
+### Fixed
 - The agent no longer probes the PBS `/nodes` index. That endpoint requires more
   than the `Audit` privilege a least-privilege monitoring token holds, so every
   run logged a `403 ... permission check failed` on the PBS host. The local node
