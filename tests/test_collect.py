@@ -51,6 +51,51 @@ def test_node_index_not_probed_localhost_alias_used():
     assert any(p == "/nodes/localhost/tasks" for p, _ in c.calls)
 
 
+def test_piggyback_uses_guest_name_from_snapshot_comment():
+    """With the {guest} template the backup lands on the PVE guest name (from
+    the snapshot comment), matching the Proxmox VE agent's piggyback host —
+    not the numeric VMID."""
+    opts = _opts(); opts.piggyback_template = "{guest}"
+    c = FakePbs(sample_routes(NOW))
+    _, pig = collect.collect(c, opts, cache.StateCache({}), NOW)
+    assert pig[0][0] == "web01"          # snapshot comment, not backup-id "100"
+
+
+def test_guest_name_persists_when_refresh_skipped():
+    """The guest name is cached, so a later run that does not re-enumerate
+    snapshots still maps the host correctly."""
+    opts = _opts(); opts.piggyback_template = "{guest}"
+    st = cache.StateCache({})
+    collect.collect(FakePbs(sample_routes(NOW)), opts, st, NOW)  # warm cache
+    # Second run: nothing changed -> no /snapshots call, guest from cache.
+    c = FakePbs(sample_routes(NOW))
+    _, pig = collect.collect(c, opts, st, NOW)
+    assert not any(p.endswith("/snapshots") for p, _ in c.calls)
+    assert pig[0][0] == "web01"
+
+
+def test_unmapped_vms_reported_in_server_section():
+    """vm/ct groups without a guest name (empty snapshot comment) fall back to
+    the VMID and are reported so the operator can spot the gap; host/ backups
+    (whose id already is the name) are not flagged."""
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/groups"] = [
+        {"backup-type": "vm", "backup-id": "116", "last-backup": NOW - 100,
+         "backup-count": 3},                       # no guest name -> unmapped
+        {"backup-type": "host", "backup-id": "services-argus",
+         "last-backup": NOW - 100, "backup-count": 3},  # host id == name, ok
+    ]
+    # snapshots carry no comment -> no guest name resolved
+    routes["/admin/datastore/main/snapshots"] = [
+        {"backup-type": "vm", "backup-id": "116", "backup-time": NOW - 100,
+         "size": 1}]
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    unmapped = host["oposs_pbs_server"]["unmapped_backups"]
+    ids = {u["backup"] for u in unmapped}
+    assert "vm/116" in ids
+    assert "host/services-argus" not in ids
+
+
 def test_snapshots_not_refetched_when_unchanged():
     routes = sample_routes(NOW)
     c = FakePbs(routes)

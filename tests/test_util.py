@@ -23,6 +23,17 @@ def test_piggyback_host_template_and_regex():
     assert u.piggyback_host("{id}", grp, (r"^(\d+)$", r"vm-\1")) == "vm-100"
 
 
+def test_piggyback_host_guest_placeholder_and_fallback():
+    """{guest} is the PVE guest name (the backup's snapshot comment) — the same
+    string the built-in Proxmox VE agent piggybacks under. When there is no
+    guest name we must fall back to the backup-id so the host is never empty."""
+    grp = {"backup-type": "vm", "backup-id": "102", "comment": ""}
+    assert u.piggyback_host("{guest}", grp, None, guest="web-volki-01") == "web-volki-01"
+    assert u.piggyback_host("{guest}", grp, None, guest="  db1 ") == "db1"   # trimmed
+    assert u.piggyback_host("{guest}", grp, None, guest="") == "102"         # fallback
+    assert u.piggyback_host("{guest}", grp, None, guest=None) == "102"       # fallback
+
+
 def test_latest_task_picks_most_recent_finished():
     tasks = [
         {"worker_type": "syncjob", "worker_id": "r:s:d:ns:job1",

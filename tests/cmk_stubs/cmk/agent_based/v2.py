@@ -6,6 +6,7 @@ from typing import Any, Callable, Iterable
 
 CheckResult = Iterable[object]
 DiscoveryResult = Iterable[object]
+HostLabelGenerator = Iterable[object]
 
 
 class State(enum.Enum):

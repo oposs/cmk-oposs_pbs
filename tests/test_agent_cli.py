@@ -27,7 +27,9 @@ def test_agent_test_file_mode(tmp_path):
         text=True)
     assert "<<<oposs_pbs_server:sep(0)>>>" in out
     assert "<<<oposs_pbs_datastore:sep(0)>>>" in out
-    assert "<<<<100>>>>" in out
+    # default template is {guest} -> piggyback host is the guest name (snapshot
+    # comment "web01"), not the numeric VMID 100.
+    assert "<<<<web01>>>>" in out
     assert "<<<oposs_pbs_backup:sep(0)>>>" in out
     # server section parses and is reachable
     line = out.split("<<<oposs_pbs_server:sep(0)>>>\n", 1)[1].splitlines()[0]

@@ -49,6 +49,7 @@ def sample_routes(now):
             {"backup-type": "vm", "backup-id": "100", "backup-time": now - 100 - DAY,
              "size": 40_000_000_000},
             {"backup-type": "vm", "backup-id": "100", "backup-time": now - 100,
-             "size": 41_000_000_000, "verification": {"state": "ok", "upid": "x"}},
+             "size": 41_000_000_000, "comment": "web01",
+             "verification": {"state": "ok", "upid": "x"}},
         ],
     }

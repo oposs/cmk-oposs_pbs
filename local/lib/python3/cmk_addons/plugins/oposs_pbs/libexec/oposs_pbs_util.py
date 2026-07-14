@@ -26,11 +26,18 @@ def dedup_factor(index_data_bytes, disk_bytes):
         return None
 
 
-def piggyback_host(template: str, group: dict, regex: tuple[str, str] | None) -> str:
+def piggyback_host(template: str, group: dict, regex: tuple[str, str] | None,
+                   guest: str | None = None) -> str:
+    bid = group.get("backup-id", "")
+    # {guest} is the PVE guest name (the backup's snapshot comment) -- the same
+    # string the built-in Proxmox VE agent piggybacks under. Fall back to the
+    # backup-id when there is no guest name so the host is never empty.
+    guest_name = (guest or "").strip() or bid
     name = template.format(
-        id=group.get("backup-id", ""),
+        id=bid,
         type=group.get("backup-type", ""),
         comment=group.get("comment", "") or "",
+        guest=guest_name,
     )
     if regex:
         pattern, repl = regex

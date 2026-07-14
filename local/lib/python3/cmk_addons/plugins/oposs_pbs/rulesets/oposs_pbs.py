@@ -6,7 +6,7 @@ from cmk.rulesets.v1.form_specs import (
     SingleChoiceElement, String, TimeSpan, TimeMagnitude, LevelDirection, validators,
 )
 from cmk.rulesets.v1.rule_specs import (
-    CheckParameters, HostAndItemCondition, SpecialAgent, Topic,
+    CheckParameters, HostAndItemCondition, HostCondition, SpecialAgent, Topic,
 )
 
 
@@ -63,8 +63,15 @@ def _agent_form() -> Dictionary:
                 prefill=DefaultValue(120))),
             "piggyback_template": DictElement(parameter_form=String(
                 title=Title("Piggyback host template"),
-                help_text=Help("Placeholders: {id} {type} {comment}"),
-                prefill=DefaultValue("{id}"))),
+                help_text=Help(
+                    "Placeholders: {guest} {id} {type} {comment}. {guest} is the "
+                    "PVE guest name (from the backup's snapshot comment) -- the "
+                    "same host name the built-in Proxmox VE agent piggybacks "
+                    "under, so the PBS backup service lands on the same host. "
+                    "It falls back to the backup-id (VMID) when no guest name is "
+                    "present. {id} is the raw backup-id, {type} vm/ct/host, "
+                    "{comment} the datastore group comment."),
+                prefill=DefaultValue("{guest}"))),
             "piggyback_regex": DictElement(parameter_form=String(
                 title=Title("Piggyback host rewrite (PATTERN=REPLACEMENT)"))),
             "no_piggyback": DictElement(parameter_form=List(
@@ -77,6 +84,29 @@ def _agent_form() -> Dictionary:
 rule_spec_special_agent_oposs_pbs = SpecialAgent(
     name="oposs_pbs", title=Title("Proxmox Backup Server (REST API)"),
     topic=Topic.STORAGE, parameter_form=_agent_form)
+
+
+def _server_form() -> Dictionary:
+    return Dictionary(elements={
+        "unmapped_state": DictElement(parameter_form=SingleChoice(
+            title=Title("State when VM/CT backups have no guest name"),
+            help_text=Help(
+                "vm/ct backups whose PBS snapshot comment carries no guest name "
+                "land on their numeric VMID instead of the guest host. Set the "
+                "PVE backup notes-template to {{guestname}} to fix this at the "
+                "source; meanwhile this controls how the PBS Server service "
+                "reports the gap."),
+            elements=[SingleChoiceElement(name="ok", title=Title("OK")),
+                      SingleChoiceElement(name="warn", title=Title("WARN")),
+                      SingleChoiceElement(name="crit", title=Title("CRIT"))],
+            prefill=DefaultValue("warn"))),
+    })
+
+
+rule_spec_oposs_pbs_server = CheckParameters(
+    name="oposs_pbs_server", title=Title("PBS server"),
+    topic=Topic.STORAGE, parameter_form=_server_form,
+    condition=HostCondition())
 
 
 def _datastore_form() -> Dictionary:

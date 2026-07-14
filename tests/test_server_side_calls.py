@@ -42,6 +42,15 @@ def test_timeout_flag_emitted_only_when_set():
     assert with_to[with_to.index("--timeout") + 1] == "90"
 
 
+def test_default_piggyback_template_is_guest():
+    """Default piggyback host = the PVE guest name, matching the Proxmox VE
+    agent's piggyback host (not the numeric VMID)."""
+    args = list(ssc.special_agent_oposs_pbs.commands_function(
+        ssc.Params(token_id="root@pam!mon", token_secret=Secret(3)),
+        HostConfig(name="pbs01")))[0].command_arguments
+    assert args[args.index("--piggyback-template") + 1] == "{guest}"
+
+
 def test_refresh_budget_flag_emitted_only_when_set():
     base = dict(token_id="root@pam!mon", token_secret=Secret(3))
     off = list(ssc.special_agent_oposs_pbs.commands_function(

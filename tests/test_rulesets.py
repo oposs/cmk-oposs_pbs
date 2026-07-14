@@ -7,6 +7,14 @@ def test_specs_exist_with_matching_names():
     assert rs.rule_spec_oposs_pbs_datastore.kwargs["name"] == "oposs_pbs_datastore"
     assert rs.rule_spec_oposs_pbs_job.kwargs["name"] == "oposs_pbs_job"
     assert rs.rule_spec_oposs_pbs_backup.kwargs["name"] == "oposs_pbs_backup"
+    assert rs.rule_spec_oposs_pbs_server.kwargs["name"] == "oposs_pbs_server"
+
+
+def test_piggyback_template_defaults_to_guest():
+    piggy = rs._agent_form().kwargs["elements"]["piggyback_template"]
+    # DictElement(parameter_form=String(prefill=DefaultValue("{guest}")))
+    prefill = piggy.kwargs["parameter_form"].kwargs["prefill"]
+    assert prefill.args[0] == "{guest}"
 
 
 def test_agent_form_has_required_elements():

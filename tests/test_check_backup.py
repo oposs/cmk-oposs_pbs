@@ -56,6 +56,19 @@ def test_unknown_interval_uses_fallback(monkeypatch):
     assert State.CRIT in _states(res)  # 3 * fallback(1d) missed
 
 
+def test_backup_host_labels():
+    """Each piggyback host we report on gets discovered host labels so operators
+    can filter/alert on 'has a PBS backup' and by datastore."""
+    labels = list(m.host_label_oposs_pbs_backup([rec(datastore="backup-store-01")]))
+    pairs = {(l.name, l.value) for l in labels}
+    assert ("oposs_pbs/backup", "yes") in pairs
+    assert ("oposs_pbs/datastore", "backup-store-01") in pairs
+
+
+def test_backup_host_labels_empty_section():
+    assert list(m.host_label_oposs_pbs_backup([])) == []
+
+
 def test_discovery_yields_one_service_per_record():
     section = [rec(), rec(datastore="backup2", verify_state="failed",
                           last_backup=NOW - 5 * DAY)]

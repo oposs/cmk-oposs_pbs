@@ -8,8 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- **Guest-name piggyback mapping.** The PBS Backup piggyback host now defaults to
+  the PVE guest name (read from each backup's snapshot comment) instead of the
+  numeric VMID. This is the same host name the built-in Checkmk Proxmox VE agent
+  piggybacks under (`vm["name"]`), so the PBS Backup service attaches to the
+  *same* Checkmk host as the VM's Proxmox VE data, honouring any piggyback
+  hostname-translation rule identically. A new `{guest}` placeholder is available
+  for custom templates and is the new default; it falls back to the backup-id
+  when a backup has no guest name (e.g. `host/` backups, whose id already is the
+  hostname).
+- The **PBS Server** service now reports vm/ct backups that have no guest name
+  (and therefore land on their VMID) with a configurable state (new *PBS server*
+  check ruleset, default WARN), so the gap can be fixed at the PVE backup
+  `notes-template` (set it to `{{guestname}}`).
+- PBS Backup piggyback hosts now get discovered host labels `oposs_pbs/backup:yes`
+  and `oposs_pbs/datastore:<datastore>` for filtering and alerting on "has a PBS
+  backup".
 
 ### Changed
+- The default piggyback host template changed from `{id}` to `{guest}` (see
+  above). **Migration:** existing piggyback services under numeric VMIDs go stale
+  after the upgrade and can be deleted; the same backup data reappears under the
+  guest hostname. An existing state cache refreshes each group once (bounded by
+  the refresh budget) to learn the guest name.
 
 ### Fixed
 

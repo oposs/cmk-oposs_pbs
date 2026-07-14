@@ -4,8 +4,9 @@ import json
 import time
 
 from cmk.agent_based.v2 import (
-    AgentSection, CheckPlugin, CheckResult, DiscoveryResult, Metric, Result,
-    Service, ServiceLabel, State, check_levels, render,
+    AgentSection, CheckPlugin, CheckResult, DiscoveryResult, HostLabel,
+    HostLabelGenerator, Metric, Result, Service, ServiceLabel, State,
+    check_levels, render,
 )
 
 
@@ -30,10 +31,32 @@ def parse_backup(string_table):
     return records
 
 
+def host_label_oposs_pbs_backup(section) -> HostLabelGenerator:
+    """Discovered host labels on each piggyback host that has a PBS backup, so
+    operators can filter/alert on "has a PBS backup" and by datastore.
+
+    Labels:
+        oposs_pbs/backup:
+            "yes" if this host has at least one PBS backup.
+        oposs_pbs/datastore:
+            the datastore holding the (first-seen) backup for this host.
+    """
+    if not section:
+        return
+    yield HostLabel("oposs_pbs/backup", "yes")
+    for rec in section:
+        store = rec.get("datastore")
+        if store:
+            yield HostLabel("oposs_pbs/datastore", store)
+            return
+
+
 agent_section_oposs_pbs_server = AgentSection(name="oposs_pbs_server", parse_function=parse_json)
 agent_section_oposs_pbs_datastore = AgentSection(name="oposs_pbs_datastore", parse_function=parse_json)
 agent_section_oposs_pbs_jobs = AgentSection(name="oposs_pbs_jobs", parse_function=parse_json)
-agent_section_oposs_pbs_backup = AgentSection(name="oposs_pbs_backup", parse_function=parse_backup)
+agent_section_oposs_pbs_backup = AgentSection(
+    name="oposs_pbs_backup", parse_function=parse_backup,
+    host_label_function=host_label_oposs_pbs_backup)
 
 
 # --- PBS Server -------------------------------------------------------------
@@ -43,7 +66,10 @@ def discover_oposs_pbs_server(section) -> DiscoveryResult:
         yield Service()
 
 
-def check_oposs_pbs_server(section) -> CheckResult:
+_STATE_CHOICE = {"ok": State.OK, "warn": State.WARN, "crit": State.CRIT}
+
+
+def check_oposs_pbs_server(params, section) -> CheckResult:
     if not section:
         yield Result(state=State.UNKNOWN, summary="No data from agent")
         return
@@ -55,12 +81,28 @@ def check_oposs_pbs_server(section) -> CheckResult:
         f"Version {section.get('version', '?')}, node {section.get('node', '?')}, "
         f"{section.get('datastore_count', 0)} datastore(s)"))
 
+    unmapped = section.get("unmapped_backups") or []
+    if unmapped:
+        state = _STATE_CHOICE.get(params.get("unmapped_state", "warn"), State.WARN)
+        names = ", ".join(f"{u.get('datastore')}:{u.get('ns')}/{u.get('backup')}"
+                          for u in unmapped)
+        yield Result(
+            state=state,
+            summary=(f"{len(unmapped)} VM/CT backup(s) without a guest name "
+                     f"(reported under their VMID)"),
+            details=("These backups have no guest name in their PBS snapshot "
+                     "comment, so they land on their numeric VMID instead of the "
+                     "guest host. Set the PVE backup notes-template to "
+                     "{{guestname}} to map them:\n" + names))
+
 
 check_plugin_oposs_pbs_server = CheckPlugin(
     name="oposs_pbs_server", service_name="PBS Server",
     sections=["oposs_pbs_server"],
     discovery_function=discover_oposs_pbs_server,
-    check_function=check_oposs_pbs_server)
+    check_function=check_oposs_pbs_server,
+    check_ruleset_name="oposs_pbs_server",
+    check_default_parameters={"unmapped_state": "warn"})
 
 
 # --- PBS Datastore ----------------------------------------------------------

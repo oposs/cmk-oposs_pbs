@@ -12,7 +12,11 @@ from oposs_pbs_cache import StateCache, group_key
 # no previous value is cached. Chosen so the check reports "unknown cadence"
 # and "not verified" rather than raising a false alarm.
 _DEGRADED = {"interval": None, "interval_known": False,
-             "verify_state": "none", "data_size": 0}
+             "verify_state": "none", "data_size": 0, "guest": ""}
+
+# Backup types whose id is a numeric VMID (so an empty guest name = "unmapped").
+# host/ backups already carry a meaningful name as their id.
+_GUEST_TYPES = ("vm", "ct")
 
 # Keep at most this many distinct last-backup timestamps per group; enough to
 # derive a stable median cadence without unbounded cache growth.
@@ -151,7 +155,8 @@ def _namespaces(client, store):
 
 
 def _refresh_group(client, store, ns, group, now):
-    """Fetch this group's snapshots; return (interval, known, verify_state, size)."""
+    """Fetch this group's snapshots; return
+    (interval, known, verify_state, size, guest)."""
     snaps = client.get(f"/admin/datastore/{store}/snapshots", params={
         "ns": ns, "backup-type": group["backup-type"],
         "backup-id": group["backup-id"],
@@ -161,7 +166,10 @@ def _refresh_group(client, store, ns, group, now):
     newest = max(snaps, key=lambda s: s.get("backup-time", 0)) if snaps else {}
     vstate = (newest.get("verification") or {}).get("state") or "none"
     size = int(newest.get("size", 0) or 0)
-    return interval, interval is not None, vstate, size
+    # PVE writes the guest name into the snapshot comment (notes-template
+    # {{guestname}}); it identifies the piggyback host.
+    guest = (newest.get("comment") or "").strip()
+    return interval, interval is not None, vstate, size, guest
 
 
 def collect(client, opts: Options, cache: StateCache, now: int,
@@ -199,15 +207,19 @@ def collect(client, opts: Options, cache: StateCache, now: int,
 
     datastores: dict = {}
     piggyback: list = []
+    unmapped: list = []
     for store in stores:
         # One unreachable/slow datastore must not sink the others.
         try:
             _collect_store(client, store, opts, cache, tasks, now,
-                           datastores, piggyback, budget, saver)
+                           datastores, piggyback, budget, saver, unmapped)
         except Exception as exc:
             _warn(f"datastore {store!r} collection failed, skipped: {exc}")
         saver.flush()
     host["oposs_pbs_datastore"] = datastores
+    # vm/ct backups with no resolved guest name land on their VMID; surface them
+    # so the operator can fix the PVE notes-template.
+    host["oposs_pbs_server"]["unmapped_backups"] = unmapped
     return host, piggyback
 
 
@@ -231,7 +243,7 @@ class _Saver:
 
 
 def _collect_store(client, store, opts, cache, tasks, now, datastores,
-                   piggyback, budget, saver):
+                   piggyback, budget, saver, unmapped):
     status = client.get(f"/admin/datastore/{store}/status") or {}
     gcs = status.get("gc-status") or {}
     group_count = backup_count = 0
@@ -253,12 +265,13 @@ def _collect_store(client, store, opts, cache, tasks, now, datastores,
                     and budget.allow():
                 t0 = time.monotonic()
                 try:
-                    interval, known, vstate, size = _refresh_group(
+                    interval, known, vstate, size, guest = _refresh_group(
                         client, store, ns, g, now)
                     cache.put(key, {"last_backup": last_backup,
                                     "verify_checked_at": verify_activity,
                                     "interval": interval, "interval_known": known,
                                     "verify_state": vstate, "data_size": size,
+                                    "guest": guest,
                                     "observations": observations})
                     refreshed = True
                 except Exception as exc:
@@ -278,8 +291,13 @@ def _collect_store(client, store, opts, cache, tasks, now, datastores,
                 cache.put(key, entry)
             e = cache.get(key)
             interval, interval_known = _effective_interval(e, observations)
+            guest = (e.get("guest") or "").strip()
+            # A vm/ct backup with no guest name lands on its VMID -> "unmapped".
+            if not guest and g["backup-type"] in _GUEST_TYPES:
+                unmapped.append({"datastore": store, "ns": ns,
+                                 "backup": f"{g['backup-type']}/{g['backup-id']}"})
             host_name = u.piggyback_host(opts.piggyback_template, g,
-                                         opts.piggyback_regex)
+                                         opts.piggyback_regex, guest=guest)
             piggyback.append((host_name, {
                 "datastore": store, "ns": ns,
                 "backup_type": g["backup-type"], "backup_id": g["backup-id"],

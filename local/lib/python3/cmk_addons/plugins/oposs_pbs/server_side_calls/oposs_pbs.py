@@ -18,7 +18,7 @@ class Params(BaseModel):
     task_limit: int = 1000
     timeout: int | None = None
     refresh_budget: int | None = None
-    piggyback_template: str = "{id}"
+    piggyback_template: str = "{guest}"
     piggyback_regex: str | None = None
     no_piggyback: list[str] = []
 

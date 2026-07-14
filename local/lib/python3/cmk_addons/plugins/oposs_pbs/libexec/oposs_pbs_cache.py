@@ -42,6 +42,8 @@ class StateCache:
         entry = self._d.get(key)
         if entry is None:
             return True
+        if "guest" not in entry:
+            return True  # pre-guest-mapping cache: refresh once to learn the name
         if entry.get("last_backup") != last_backup:
             return True
         if entry.get("verify_checked_at", 0) < verify_activity:

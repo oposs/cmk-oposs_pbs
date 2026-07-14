@@ -33,7 +33,7 @@ def parse_args(argv):
     p.add_argument("--timeout", type=int, default=60)  # per-request HTTP timeout
     # Wall-clock ceiling on expensive /snapshots refreshes per run; 0 = unlimited.
     p.add_argument("--refresh-budget", type=int, default=120)
-    p.add_argument("--piggyback-template", default="{id}")
+    p.add_argument("--piggyback-template", default="{guest}")
     p.add_argument("--piggyback-regex")  # "PATTERN=REPLACEMENT"
     p.add_argument("--no-piggyback-datastore", action="append", default=[])
     p.add_argument("--cache-dir")
