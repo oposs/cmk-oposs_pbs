@@ -220,6 +220,15 @@ def collect(client, opts: Options, cache: StateCache, now: int,
     # vm/ct backups with no resolved guest name land on their VMID; surface them
     # so the operator can fix the PVE notes-template.
     host["oposs_pbs_server"]["unmapped_backups"] = unmapped
+    # Host-level roll-up: one record per backup group (with its resolved
+    # piggyback host) for the single "PBS Backups" summary service on the PBS
+    # host, so one glance shows if any backup is stale/failed.
+    host["oposs_pbs_backup_rollup"] = [
+        {"host": hn, "datastore": rec["datastore"], "ns": rec["ns"],
+         "backup_type": rec["backup_type"], "backup_id": rec["backup_id"],
+         "last_backup": rec["last_backup"], "interval": rec["interval"],
+         "interval_known": rec["interval_known"], "verify_state": rec["verify_state"]}
+        for hn, rec in piggyback]
     return host, piggyback
 
 

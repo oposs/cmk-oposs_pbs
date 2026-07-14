@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- **PBS Backups roll-up service.** A single `PBS Backups` service on the PBS host
+  summarizes the health of *every* backup group (vm/ct/host). It goes WARN/CRIT
+  if any backup is stale (missed cadence) or its newest snapshot failed
+  verification, and lists exactly which ones in the service details (guest host,
+  datastore/namespace, backup, reason) so you can see what went bad without
+  visiting each piggyback host. Metrics `oposs_pbs_backups_total` and
+  `oposs_pbs_backups_unhealthy` are emitted. Thresholds are configurable via the
+  new *PBS backups roll-up* check ruleset (same knobs as the per-guest backup
+  check). Additive: the per-guest `PBS Backup` services are unchanged.
 
 ### Changed
 

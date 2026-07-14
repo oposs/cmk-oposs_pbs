@@ -118,6 +118,8 @@ def main(argv=None):
         _print_section("oposs_pbs_datastore", host["oposs_pbs_datastore"])
     if "oposs_pbs_jobs" in host:
         _print_section("oposs_pbs_jobs", host["oposs_pbs_jobs"])
+    if "oposs_pbs_backup_rollup" in host:
+        _print_section("oposs_pbs_backup_rollup", host["oposs_pbs_backup_rollup"])
 
     for host_name, record in piggyback:
         if not host_name:

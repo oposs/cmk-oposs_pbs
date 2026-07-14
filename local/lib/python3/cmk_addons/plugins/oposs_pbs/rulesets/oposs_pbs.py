@@ -171,3 +171,10 @@ rule_spec_oposs_pbs_backup = CheckParameters(
     name="oposs_pbs_backup", title=Title("PBS backup freshness (piggyback)"),
     topic=Topic.STORAGE, parameter_form=_backup_form,
     condition=HostAndItemCondition(item_title=Title("Datastore/namespace")))
+
+
+rule_spec_oposs_pbs_backups = CheckParameters(
+    name="oposs_pbs_backups",
+    title=Title("PBS backups roll-up (all backups on the PBS host)"),
+    topic=Topic.STORAGE, parameter_form=_backup_form,
+    condition=HostCondition())

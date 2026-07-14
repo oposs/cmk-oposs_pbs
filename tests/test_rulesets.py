@@ -8,6 +8,7 @@ def test_specs_exist_with_matching_names():
     assert rs.rule_spec_oposs_pbs_job.kwargs["name"] == "oposs_pbs_job"
     assert rs.rule_spec_oposs_pbs_backup.kwargs["name"] == "oposs_pbs_backup"
     assert rs.rule_spec_oposs_pbs_server.kwargs["name"] == "oposs_pbs_server"
+    assert rs.rule_spec_oposs_pbs_backups.kwargs["name"] == "oposs_pbs_backups"
 
 
 def test_piggyback_template_defaults_to_guest():

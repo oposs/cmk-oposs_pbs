@@ -15,6 +15,12 @@ class State(enum.Enum):
     CRIT = 2
     UNKNOWN = 3
 
+    @classmethod
+    def worst(cls, *states):
+        # Checkmk severity order: OK < WARN < UNKNOWN < CRIT.
+        rank = {cls.OK: 0, cls.WARN: 1, cls.UNKNOWN: 2, cls.CRIT: 3}
+        return max(states, key=lambda s: rank[s]) if states else cls.OK
+
 
 @dataclass
 class Result:

@@ -328,3 +328,103 @@ check_plugin_oposs_pbs_backup = CheckPlugin(
     check_ruleset_name="oposs_pbs_backup",
     check_default_parameters={"warn_missed": 2, "crit_missed": 3,
                               "fallback_interval": 86400.0, "unverified_state": "ok"})
+
+
+# --- PBS Backups roll-up (host-level summary of every backup group) ---------
+
+def parse_rollup(string_table):
+    if not string_table or not string_table[0]:
+        return []
+    try:
+        data = json.loads(string_table[0][0])
+        return data if isinstance(data, list) else []
+    except (ValueError, IndexError):
+        return []
+
+
+agent_section_oposs_pbs_backup_rollup = AgentSection(
+    name="oposs_pbs_backup_rollup", parse_function=parse_rollup)
+
+
+def _eval_backup(rec, params, now) -> tuple[State, str | None]:
+    """Health of a single backup group -> (state, reason) with reason=None when OK."""
+    last = rec.get("last_backup") or 0
+    age = max(0.0, now - last)
+    interval = rec.get("interval") if rec.get("interval_known") \
+        else params.get("fallback_interval", 86400.0)
+    if not interval:
+        interval = params.get("fallback_interval", 86400.0)
+
+    state = State.OK
+    reasons = []
+    if age >= params.get("crit_missed", 3) * interval:
+        state = State.CRIT
+        reasons.append(f"STALE {render.timespan(age)} "
+                       f"(cadence ~{render.timespan(interval)})")
+    elif age >= params.get("warn_missed", 2) * interval:
+        state = State.WARN
+        reasons.append(f"STALE {render.timespan(age)} "
+                       f"(cadence ~{render.timespan(interval)})")
+
+    vstate = rec.get("verify_state", "none")
+    if vstate == "failed":
+        state = State.CRIT
+        reasons.append("verify FAILED")
+    elif vstate != "ok" and params.get("unverified_state") == "warn":
+        state = State.worst(state, State.WARN)
+        reasons.append("not verified")
+
+    return state, ("; ".join(reasons) if reasons else None)
+
+
+def discover_oposs_pbs_backups(section) -> DiscoveryResult:
+    if section:
+        yield Service()
+
+
+def check_oposs_pbs_backups(params, section) -> CheckResult:
+    total = len(section or [])
+    if not total:
+        yield Result(state=State.OK, summary="No backups reported")
+        return
+    now = time.time()
+    worst = State.OK
+    bad = []  # (rec, reason)
+    for rec in section:
+        st, reason = _eval_backup(rec, params, now)
+        if reason:
+            worst = State.worst(worst, st)
+            bad.append((rec, reason))
+
+    if not bad:
+        yield Result(state=State.OK, summary=f"{total} backups OK")
+    else:
+        n_stale = sum(1 for _, r in bad if "STALE" in r)
+        n_verify = sum(1 for _, r in bad if "verify FAILED" in r)
+        n_unver = sum(1 for _, r in bad if "not verified" in r)
+        parts = []
+        if n_stale:
+            parts.append(f"{n_stale} stale")
+        if n_verify:
+            parts.append(f"{n_verify} verify-failed")
+        if n_unver:
+            parts.append(f"{n_unver} unverified")
+        details = "\n".join(
+            f"{rec.get('host', '?')}  {rec.get('datastore', '?')}/{rec.get('ns', '')}"
+            f"  {rec.get('backup_type', '?')}/{rec.get('backup_id', '?')}  {reason}"
+            for rec, reason in bad)
+        yield Result(state=worst, summary=f"{total} backups: " + ", ".join(parts),
+                     details=details)
+
+    yield Metric("oposs_pbs_backups_total", float(total))
+    yield Metric("oposs_pbs_backups_unhealthy", float(len(bad)))
+
+
+check_plugin_oposs_pbs_backups = CheckPlugin(
+    name="oposs_pbs_backups", service_name="PBS Backups",
+    sections=["oposs_pbs_backup_rollup"],
+    discovery_function=discover_oposs_pbs_backups,
+    check_function=check_oposs_pbs_backups,
+    check_ruleset_name="oposs_pbs_backups",
+    check_default_parameters={"warn_missed": 2, "crit_missed": 3,
+                              "fallback_interval": 86400.0, "unverified_state": "ok"})

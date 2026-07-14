@@ -74,6 +74,20 @@ def test_guest_name_persists_when_refresh_skipped():
     assert pig[0][0] == "web01"
 
 
+def test_rollup_section_lists_every_group():
+    """A host-level roll-up section carries one record per backup group, with the
+    resolved piggyback host name, for the single 'PBS Backups' summary service."""
+    c = FakePbs(_two_group_routes(NOW))
+    host, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
+    rollup = host["oposs_pbs_backup_rollup"]
+    assert len(rollup) == len(pig) == 2
+    r0 = rollup[0]
+    assert {"host", "datastore", "ns", "backup_type", "backup_id",
+            "last_backup", "interval", "interval_known", "verify_state"} <= set(r0)
+    # host is the resolved piggyback name (default {id} in tests here -> "100")
+    assert {r["backup_id"] for r in rollup} == {"100", "200"}
+
+
 def test_unmapped_vms_reported_in_server_section():
     """vm/ct groups without a guest name (empty snapshot comment) fall back to
     the VMID and are reported so the operator can spot the gap; host/ backups
