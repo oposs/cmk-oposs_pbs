@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 0.3.0 - 2026-07-14
+### New
 - **Guest-name piggyback mapping.** The PBS Backup piggyback host now defaults to
   the PVE guest name (read from each backup's snapshot comment) instead of the
   numeric VMID. This is the same host name the built-in Checkmk Proxmox VE agent
@@ -31,8 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after the upgrade and can be deleted; the same backup data reappears under the
   guest hostname. An existing state cache refreshes each group once (bounded by
   the refresh budget) to learn the guest name.
-
-### Fixed
 
 ## 0.2.2 - 2026-07-13
 ### Fixed
