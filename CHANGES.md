@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   service summary (e.g. `cadence ~1 day`, or `cadence ~1 day (assumed)` when
   derived from a fallback). **After upgrade:** run a service rediscovery on the
   affected piggyback hosts, remove the vanished old items, and re-point any
-  per-item `PBS backup freshness` rules to the new item names.
+  per-item `PBS backup freshness (piggyback)` rules to the new item names.
 
 ### Fixed
 
