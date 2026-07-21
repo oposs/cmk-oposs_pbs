@@ -274,7 +274,9 @@ check_plugin_oposs_pbs_prune = CheckPlugin(
 
 def _backup_item(rec) -> str:
     ns = rec.get("ns")
-    return f"{rec['datastore']}/{ns}" if ns else rec.get("datastore", "?")
+    store = rec.get("datastore", "?")
+    group = f"{rec.get('backup_type', '?')}/{rec.get('backup_id', '?')}"
+    return f"{store}/{ns} {group}" if ns else f"{store} {group}"
 
 
 def discover_oposs_pbs_backup(section) -> DiscoveryResult:
@@ -298,13 +300,14 @@ def check_oposs_pbs_backup(item, params, section) -> CheckResult:
     warn_missed = params.get("warn_missed", 2)
     crit_missed = params.get("crit_missed", 3)
     levels = ("fixed", (warn_missed * interval, crit_missed * interval))
-    suffix = "" if rec.get("interval_known") else " (assumed cadence)"
+    suffix = "" if rec.get("interval_known") else " (assumed)"
     yield from check_levels(
         age, levels_upper=levels, metric_name="oposs_pbs_backup_age",
         label="Last backup age", render_func=render.timespan)
-    yield Result(state=State.OK, notice=(
-        f"Cadence ~{render.timespan(interval)}{suffix}, "
-        f"{rec.get('backup_count', 0)} snapshots"))
+    yield Result(state=State.OK,
+                 summary=f"cadence ~{render.timespan(interval)}{suffix}")
+    yield Result(state=State.OK,
+                 notice=f"{rec.get('backup_count', 0)} snapshots")
 
     size = rec.get("data_size") or 0
     yield Metric("oposs_pbs_backup_size", float(size))
