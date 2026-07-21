@@ -116,6 +116,17 @@ class render:  # noqa: N801  (mirror real API's lowercase module-like name)
     @staticmethod
     def bytes(v): return f"{v:.0f}B"
     @staticmethod
-    def timespan(v): return f"{v:.0f}s"
+    def timespan(v):
+        """Render seconds as human-readable time."""
+        if v < 60:
+            return f"{v:.0f}s"
+        elif v < 3600:
+            return f"{v/60:.0f} min"
+        elif v < 86400:
+            hours = v / 3600
+            return f"{hours:.0f} hour" + ("s" if hours != 1.0 else "")
+        else:
+            days = v / 86400
+            return f"{days:.0f} day" + ("s" if days != 1.0 else "")
     @staticmethod
     def datetime(v): return f"@{int(v)}"

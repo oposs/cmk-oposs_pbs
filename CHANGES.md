@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New
 
 ### Changed
+- **BREAKING: `PBS Backup` services are now per backup group.** The service
+  item is now fully qualified as `<datastore>[/<namespace>] <type>/<id>`
+  (e.g. `store1 host/data`, `store1/prod vm/101`) instead of just the
+  datastore. A host that backs up several groups into one datastore now gets
+  one service per group, and services for datastores a host never writes to
+  no longer appear. The observed backup cadence is now shown directly in the
+  service summary (e.g. `cadence ~1 day`, or `cadence ~1 day (assumed)` when
+  derived from a fallback). **After upgrade:** run a service rediscovery on the
+  affected piggyback hosts, remove the vanished old items, and re-point any
+  per-item `PBS backup freshness (piggyback)` rules to the new item names.
 
 ### Fixed
 

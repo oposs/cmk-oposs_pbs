@@ -170,7 +170,7 @@ def _backup_form() -> Dictionary:
 rule_spec_oposs_pbs_backup = CheckParameters(
     name="oposs_pbs_backup", title=Title("PBS backup freshness (piggyback)"),
     topic=Topic.STORAGE, parameter_form=_backup_form,
-    condition=HostAndItemCondition(item_title=Title("Datastore/namespace")))
+    condition=HostAndItemCondition(item_title=Title("Backup group")))
 
 
 rule_spec_oposs_pbs_backups = CheckParameters(
