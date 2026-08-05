@@ -34,6 +34,15 @@ def test_piggyback_host_guest_placeholder_and_fallback():
     assert u.piggyback_host("{guest}", grp, None, guest=None) == "102"       # fallback
 
 
+def test_group_path_is_the_ignore_match_target():
+    """The ignore filter matches against '<store>/<ns>/<type>/<id>'. With no
+    namespace this collapses to a double slash, which patterns must be able to
+    rely on."""
+    assert u.group_path("store1", "", "vm", "105") == "store1//vm/105"
+    assert u.group_path("store1", "tenantA", "ct", "210") == "store1/tenantA/ct/210"
+    assert u.group_path("backup2", "", "host", "oldbox") == "backup2//host/oldbox"
+
+
 def test_latest_task_picks_most_recent_finished():
     tasks = [
         {"worker_type": "syncjob", "worker_id": "r:s:d:ns:job1",
