@@ -77,6 +77,24 @@ def _agent_form() -> Dictionary:
             "no_piggyback": DictElement(parameter_form=List(
                 title=Title("Datastores without per-guest piggyback"),
                 element_template=String(title=Title("Datastore")))),
+            "backup_ignore": DictElement(parameter_form=List(
+                title=Title("Ignore these backup groups (regex)"),
+                help_text=Help(
+                    "Backup groups matching any of these patterns are excluded "
+                    "from all backup monitoring: no piggyback service, no entry "
+                    "in the 'PBS Backups' roll-up, no missing-guest-name "
+                    "complaint. Use it to keep the backups of a decommissioned "
+                    "machine without alerting on their growing age. The pattern "
+                    "is searched (not anchored) in "
+                    "'<datastore>/<namespace>/<type>/<id>' -- with no namespace "
+                    "that reads 'store1//vm/105' (note the double slash), with "
+                    "one 'store1/tenantA/ct/210'. The datastore's group and "
+                    "backup counts still include ignored groups, because the "
+                    "data is still on disk. The 'PBS Server' service reports "
+                    "how many groups are being ignored."),
+                element_template=RegularExpression(
+                    title=Title("Pattern"),
+                    predefined_help_text=MatchingScope.INFIX))),
         },
     )
 

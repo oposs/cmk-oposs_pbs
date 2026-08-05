@@ -21,6 +21,7 @@ class Params(BaseModel):
     piggyback_template: str = "{guest}"
     piggyback_regex: str | None = None
     no_piggyback: list[str] = []
+    backup_ignore: list[str] = []
 
 
 def _commands(params: Params, host_config: HostConfig) -> Iterator[SpecialAgentCommand]:
@@ -46,6 +47,12 @@ def _commands(params: Params, host_config: HostConfig) -> Iterator[SpecialAgentC
         args += ["--piggyback-regex", params.piggyback_regex]
     for ds in params.no_piggyback:
         args += ["--no-piggyback-datastore", ds]
+    for pat in params.backup_ignore:
+        args += ["--ignore-backup", pat]
+    # The Checkmk host name (not the address): lets the agent recognise this
+    # PBS server's own backup and report it inline instead of piggybacking to
+    # itself. See rulesets help for "Ignore these backup groups".
+    args += ["--self-host", host_config.name]
     try:
         address = host_config.primary_ip_config.address
     except (ValueError, RuntimeError):
