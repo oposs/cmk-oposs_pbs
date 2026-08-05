@@ -8,8 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- **Ignore backup groups by regex.** The special agent rule gained
+  `Ignore these backup groups (regex)`. Matching groups are excluded from all
+  backup monitoring — no piggyback service, no roll-up entry, no
+  missing-guest-name complaint — so backups of decommissioned machines can be
+  retained without alerting. The pattern is searched in
+  `<datastore>/<namespace>/<type>/<id>` (e.g. `store1//vm/105`). Ignored groups
+  are skipped before any snapshot enumeration, so ignoring also saves API calls.
+  The `PBS Server` service reports the number of ignored groups.
 
 ### Changed
+- **A PBS server that backs up its own VM now reports that backup on itself.**
+  Previously the agent emitted a piggyback block addressed to the host that
+  produced the output. When the backup's resolved piggyback host name equals
+  the Checkmk host name (case-insensitive, exact), the `PBS Backup` service now
+  appears directly on the PBS host. If this applies to you, the affected
+  service moves from a piggyback host to the PBS host and the PBS host gains
+  the `oposs_pbs/backup` and `oposs_pbs/datastore` host labels; re-run service
+  discovery on both. Setups where the names differ are unaffected.
 
 ### Fixed
 
