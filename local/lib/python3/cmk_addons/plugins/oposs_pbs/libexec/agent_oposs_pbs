@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import sys
 
@@ -36,6 +37,13 @@ def parse_args(argv):
     p.add_argument("--piggyback-template", default="{guest}")
     p.add_argument("--piggyback-regex")  # "PATTERN=REPLACEMENT"
     p.add_argument("--no-piggyback-datastore", action="append", default=[])
+    # Repeatable regex; matched (re.search) against "<store>/<ns>/<type>/<id>".
+    p.add_argument("--ignore-backup", action="append", default=[])
+    # Checkmk host name of this PBS host. A backup group resolving to exactly
+    # this name is this server's own backup (PBS running as a VM on the cluster
+    # it backs up); it is reported inline instead of as self-referential
+    # piggyback.
+    p.add_argument("--self-host")
     p.add_argument("--cache-dir")
     p.add_argument("--test-file")
     p.add_argument("--now", type=int)  # test hook; real runs use time.time()
@@ -80,10 +88,21 @@ def main(argv=None):
     if args.piggyback_regex and "=" in args.piggyback_regex:
         pat, repl = args.piggyback_regex.split("=", 1)
         regex = (pat, repl)
+
+    # Compile once, at startup: an invalid pattern is a misconfiguration and
+    # must fail loudly rather than silently suppressing nothing (or everything).
+    try:
+        ignore = [re.compile(pat) for pat in args.ignore_backup]
+    except re.error as exc:
+        print(f"invalid --ignore-backup pattern {exc.pattern!r}: {exc}",
+              file=sys.stderr)
+        return 2
+
     opts = collect_mod.Options(
         include=args.include_datastore, exclude=args.exclude_datastore,
         task_limit=args.task_limit, piggyback_template=args.piggyback_template,
-        piggyback_regex=regex, no_piggyback=set(args.no_piggyback_datastore))
+        piggyback_regex=regex, no_piggyback=set(args.no_piggyback_datastore),
+        ignore=ignore)
 
     import time
     now = args.now if args.now is not None else int(time.time())
@@ -121,9 +140,26 @@ def main(argv=None):
     if "oposs_pbs_backup_rollup" in host:
         _print_section("oposs_pbs_backup_rollup", host["oposs_pbs_backup_rollup"])
 
+    # Split the groups into this host's own backup and everyone else's. The
+    # inline section must be printed before the first piggyback marker,
+    # otherwise it would be attributed to the preceding piggyback host.
+    self_host = (args.self_host or "").casefold()
+    own: list = []
+    remote: list = []
     for host_name, record in piggyback:
         if not host_name:
             continue
+        if self_host and host_name.casefold() == self_host:
+            own.append(record)
+        else:
+            remote.append((host_name, record))
+
+    if own:
+        print("<<<oposs_pbs_backup:sep(0)>>>")
+        for record in own:
+            print(json.dumps(record, separators=(",", ":")))
+
+    for host_name, record in remote:
         print(f"<<<<{host_name}>>>>")
         _print_section("oposs_pbs_backup", record)
         print("<<<<>>>>")
