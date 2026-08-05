@@ -1,3 +1,4 @@
+import re
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "fixtures"))
@@ -306,3 +307,70 @@ def test_save_callback_invoked_during_collection():
     collect.collect(c, _opts(), cache.StateCache({}), NOW,
                     save=lambda: calls.__setitem__("n", calls["n"] + 1))
     assert calls["n"] >= 1
+
+
+# --- ignore filter ----------------------------------------------------------
+
+def test_ignored_group_is_dropped_everywhere():
+    """A matching group produces no piggyback record and no roll-up entry, and
+    is counted on the server section so the suppression stays discoverable."""
+    opts = _opts(); opts.ignore = [re.compile(r"vm/100$")]
+    c = FakePbs(sample_routes(NOW))
+    host, pig = collect.collect(c, opts, cache.StateCache({}), NOW)
+
+    assert pig == []
+    assert host["oposs_pbs_backup_rollup"] == []
+    assert host["oposs_pbs_server"]["ignored_backups"] == 1
+
+
+def test_ignored_group_costs_no_snapshot_call():
+    """The filter runs before the cache lookup, so an ignored group never
+    triggers the expensive /snapshots enumeration."""
+    opts = _opts(); opts.ignore = [re.compile(r"vm/100$")]
+    c = FakePbs(sample_routes(NOW))
+    collect.collect(c, opts, cache.StateCache({}), NOW)
+    assert not any(p.endswith("/snapshots") for p, _ in c.calls)
+
+
+def test_ignored_group_still_counted_in_datastore_totals():
+    """Ignored backups still occupy disk, so the datastore's own figures must
+    not change."""
+    opts = _opts(); opts.ignore = [re.compile(r"vm/100$")]
+    c = FakePbs(sample_routes(NOW))
+    host, _ = collect.collect(c, opts, cache.StateCache({}), NOW)
+    ds = host["oposs_pbs_datastore"]["main"]
+    assert ds["group_count"] == 1 and ds["backup_count"] == 7
+    assert ds["used"] == 250
+
+
+def test_ignored_group_not_reported_as_unmapped():
+    """A vm group with no guest name would normally be flagged as unmapped;
+    ignoring it must silence that too."""
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/groups"] = [
+        {"backup-type": "vm", "backup-id": "116", "last-backup": NOW - 100,
+         "backup-count": 3}]                      # no comment -> no guest name
+    routes["/admin/datastore/main/snapshots"] = [
+        {"backup-type": "vm", "backup-id": "116", "backup-time": NOW - 100,
+         "size": 1}]
+    opts = _opts(); opts.ignore = [re.compile(r"^main//vm/116$")]
+    host, pig = collect.collect(FakePbs(routes), opts, cache.StateCache({}), NOW)
+    assert host["oposs_pbs_server"]["unmapped_backups"] == []
+    assert pig == []
+
+
+def test_namespace_pattern_ignores_whole_namespace():
+    routes = _two_group_routes(NOW)
+    routes["/admin/datastore/main/namespace"] = [{"ns": ""}, {"ns": "tenantA"}]
+    opts = _opts(); opts.ignore = [re.compile(r"^main/tenantA/")]
+    host, pig = collect.collect(FakePbs(routes), opts, cache.StateCache({}), NOW)
+    # Both namespaces serve the same two groups here; only the "" ones survive.
+    assert {rec["ns"] for _, rec in pig} == {""}
+    assert host["oposs_pbs_server"]["ignored_backups"] == 2
+
+
+def test_no_ignore_patterns_changes_nothing():
+    c = FakePbs(sample_routes(NOW))
+    host, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
+    assert len(pig) == 1
+    assert host["oposs_pbs_server"]["ignored_backups"] == 0
