@@ -22,10 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Previously the agent emitted a piggyback block addressed to the host that
   produced the output. When the backup's resolved piggyback host name equals
   the Checkmk host name (case-insensitive, exact), the `PBS Backup` service now
-  appears directly on the PBS host. If this applies to you, the affected
-  service moves from a piggyback host to the PBS host and the PBS host gains
-  the `oposs_pbs/backup` and `oposs_pbs/datastore` host labels; re-run service
-  discovery on both. Setups where the names differ are unaffected.
+  appears directly on the PBS host, and the PBS host acquires the
+  `oposs_pbs/backup` and `oposs_pbs/datastore` host labels. If this applies to
+  you, re-run service discovery on both the PBS host and the affected
+  piggyback host. Setups where the names differ are unaffected.
 
 ### Fixed
 

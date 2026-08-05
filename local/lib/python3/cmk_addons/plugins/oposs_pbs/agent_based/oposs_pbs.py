@@ -97,6 +97,9 @@ def check_oposs_pbs_server(params, section) -> CheckResult:
 
     ignored = section.get("ignored_backups") or 0
     if ignored:
+        # An explicit details= replaces the notice text in the details pane
+        # instead of appending to it, so the lead sentence must be repeated
+        # here or it would be missing from details entirely.
         yield Result(
             state=State.OK,
             notice=f"{ignored} backup group(s) ignored by configuration",

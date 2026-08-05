@@ -91,7 +91,13 @@ def _agent_form() -> Dictionary:
                     "one 'store1/tenantA/ct/210'. The datastore's group and "
                     "backup counts still include ignored groups, because the "
                     "data is still on disk. The 'PBS Server' service reports "
-                    "how many groups are being ignored."),
+                    "how many groups are being ignored (groups in datastores "
+                    "listed under 'Datastores without per-guest piggyback' are "
+                    "never counted, since they were never monitored). This "
+                    "only stops the agent producing data -- remove or "
+                    "rediscover the now-silent guest host in Checkmk "
+                    "afterwards, or a piggyback-only host will go stale "
+                    "instead of just its backup age."),
                 element_template=RegularExpression(
                     title=Title("Pattern"),
                     predefined_help_text=MatchingScope.INFIX))),

@@ -19,11 +19,23 @@ double slash:
 | --- | --- |
 | `vm/105$` | ignores VMID 105 in every datastore and namespace |
 | `^store1/tenantA/` | ignores everything in namespace `tenantA` of `store1` |
-| `/host/oldbox$` | ignores the `host/oldbox` backup group |
+| `/host/oldbox$` | ignores the `host/oldbox` backup group in every datastore and namespace |
 
 Ignored groups still count towards the datastore's group and backup totals —
 the data is still on disk. The `PBS Server` service reports how many groups are
-currently ignored, so a pattern that has outlived its purpose stays visible.
+currently ignored (groups in datastores excluded from piggyback via "Datastores
+without per-guest piggyback" are never monitored in the first place and are not
+counted), so a pattern that has outlived its purpose stays visible.
+
+Suppressing the agent output does not remove a `PBS Backup ...` service that
+was already discovered, and if the guest exists in Checkmk only as a piggyback
+host, its piggyback file simply stops being refreshed — after
+`piggyback_max_cachefile_age` that shows up as a no-data alert instead of the
+stale-backup warning you were trying to silence. After adding a pattern,
+either remove the now data-less piggyback host from Checkmk, or, if the host
+has other data sources, re-run service discovery on it to drop the stale
+`PBS Backup` service. The same applies to a group ignored on a host that stays
+monitored for other reasons.
 
 ### PBS running as a VM on the cluster it backs up
 
