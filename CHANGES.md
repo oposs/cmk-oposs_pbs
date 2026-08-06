@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 1.1.0 - 2026-08-06
+### New
 - **Ignore backup groups by regex.** The special agent rule gained
   `Ignore these backup groups (regex)`. Matching groups are excluded from all
   backup monitoring — no piggyback service, no roll-up entry, no
@@ -26,8 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `oposs_pbs/backup` and `oposs_pbs/datastore` host labels. If this applies to
   you, re-run service discovery on both the PBS host and the affected
   piggyback host. Setups where the names differ are unaffected.
-
-### Fixed
 
 ## 1.0.0 - 2026-07-21
 ### Changed
