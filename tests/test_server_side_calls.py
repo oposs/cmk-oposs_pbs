@@ -67,3 +67,29 @@ def test_command_arguments_fall_back_to_host_name_when_no_ip():
         params, _NoIPHostConfig()))
     args = cmds[0].command_arguments
     assert args[-1] == "pbs01"
+
+
+def test_backup_ignore_patterns_forwarded():
+    params = ssc.Params(token_id="root@pam!mon", token_secret=Secret(3),
+                        backup_ignore=[r"vm/105$", r"^store1/tenantA/"])
+    args = list(ssc.special_agent_oposs_pbs.commands_function(
+        params, HostConfig(name="pbs01")))[0].command_arguments
+    assert args.count("--ignore-backup") == 2
+    assert r"vm/105$" in args and r"^store1/tenantA/" in args
+
+
+def test_no_ignore_flag_when_unconfigured():
+    args = list(ssc.special_agent_oposs_pbs.commands_function(
+        ssc.Params(token_id="root@pam!mon", token_secret=Secret(3)),
+        HostConfig(name="pbs01")))[0].command_arguments
+    assert "--ignore-backup" not in args
+
+
+def test_self_host_always_passed_as_checkmk_host_name():
+    """The agent needs the Checkmk host name (not the IP) to recognise its own
+    backup when PBS runs as a VM on the cluster it backs up."""
+    args = list(ssc.special_agent_oposs_pbs.commands_function(
+        ssc.Params(token_id="root@pam!mon", token_secret=Secret(3)),
+        HostConfig(name="pbs01")))[0].command_arguments
+    assert args[args.index("--self-host") + 1] == "pbs01"
+    assert args[-1] == "10.0.0.1"          # host address still last

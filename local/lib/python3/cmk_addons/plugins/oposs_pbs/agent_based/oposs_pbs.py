@@ -95,6 +95,19 @@ def check_oposs_pbs_server(params, section) -> CheckResult:
                      "guest host. Set the PVE backup notes-template to "
                      "{{guestname}} to map them:\n" + names))
 
+    ignored = section.get("ignored_backups") or 0
+    if ignored:
+        # An explicit details= replaces the notice text in the details pane
+        # instead of appending to it, so the lead sentence must be repeated
+        # here or it would be missing from details entirely.
+        yield Result(
+            state=State.OK,
+            notice=f"{ignored} backup group(s) ignored by configuration",
+            details=(f"{ignored} backup group(s) ignored by configuration. "
+                     "These backup groups match an ignore pattern in the "
+                     "special agent rule and are excluded from all backup "
+                     "monitoring. Remove the pattern to monitor them again."))
+
 
 check_plugin_oposs_pbs_server = CheckPlugin(
     name="oposs_pbs_server", service_name="PBS Server",

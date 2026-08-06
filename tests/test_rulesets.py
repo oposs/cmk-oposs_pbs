@@ -23,3 +23,15 @@ def test_agent_form_has_required_elements():
     elements = form.kwargs["elements"]
     for key in ("token_id", "token_secret", "verify_tls", "piggyback_template"):
         assert key in elements
+
+
+def test_agent_form_has_backup_ignore_list_of_regexes():
+    elements = rs._agent_form().kwargs["elements"]
+    assert "backup_ignore" in elements
+    lst = elements["backup_ignore"].kwargs["parameter_form"]
+    # List(element_template=RegularExpression(...))
+    assert lst.kwargs["element_template"] is not None
+    # The match target must be documented in the GUI, including the empty-
+    # namespace double-slash form operators will otherwise get wrong.
+    # (The Help stub is a str subclass, hence str() rather than .args[0].)
+    assert "store1//vm/105" in str(lst.kwargs["help_text"])

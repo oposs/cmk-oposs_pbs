@@ -26,6 +26,15 @@ def dedup_factor(index_data_bytes, disk_bytes):
         return None
 
 
+def group_path(store: str, ns: str, btype: str, bid: str) -> str:
+    """Canonical identifier of a backup group, matched by the ignore filter.
+
+    An empty namespace yields the double-slash form, e.g. "store1//vm/105";
+    a namespaced group yields "store1/tenantA/ct/210".
+    """
+    return f"{store}/{ns}/{btype}/{bid}"
+
+
 def piggyback_host(template: str, group: dict, regex: tuple[str, str] | None,
                    guest: str | None = None) -> str:
     bid = group.get("backup-id", "")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import oposs_pbs_util as u
 from oposs_pbs_cache import StateCache, group_key
@@ -75,6 +75,9 @@ class Options:
     piggyback_template: str
     piggyback_regex: tuple | None
     no_piggyback: set
+    # Compiled regexes; a backup group whose group_path() matches any of them
+    # is dropped from all backup monitoring (see agent_oposs_pbs).
+    ignore: list = field(default_factory=list)
 
 
 def node_name(_client=None) -> str:
@@ -208,11 +211,14 @@ def collect(client, opts: Options, cache: StateCache, now: int,
     datastores: dict = {}
     piggyback: list = []
     unmapped: list = []
+    # Cross-datastore counters surfaced on the server section.
+    stats: dict = {"ignored": 0}
     for store in stores:
         # One unreachable/slow datastore must not sink the others.
         try:
             _collect_store(client, store, opts, cache, tasks, now,
-                           datastores, piggyback, budget, saver, unmapped)
+                           datastores, piggyback, budget, saver, unmapped,
+                           stats)
         except Exception as exc:
             _warn(f"datastore {store!r} collection failed, skipped: {exc}")
         saver.flush()
@@ -220,6 +226,9 @@ def collect(client, opts: Options, cache: StateCache, now: int,
     # vm/ct backups with no resolved guest name land on their VMID; surface them
     # so the operator can fix the PVE notes-template.
     host["oposs_pbs_server"]["unmapped_backups"] = unmapped
+    # Backup groups suppressed by the configured ignore patterns. Reported as a
+    # count only, so a stale pattern is discoverable without cluttering output.
+    host["oposs_pbs_server"]["ignored_backups"] = stats["ignored"]
     # Host-level roll-up: one record per backup group (with its resolved
     # piggyback host) for the single "PBS Backups" summary service on the PBS
     # host, so one glance shows if any backup is stale/failed.
@@ -252,7 +261,7 @@ class _Saver:
 
 
 def _collect_store(client, store, opts, cache, tasks, now, datastores,
-                   piggyback, budget, saver, unmapped):
+                   piggyback, budget, saver, unmapped, stats):
     status = client.get(f"/admin/datastore/{store}/status") or {}
     gcs = status.get("gc-status") or {}
     group_count = backup_count = 0
@@ -265,6 +274,14 @@ def _collect_store(client, store, opts, cache, tasks, now, datastores,
             continue
         verify_activity = u.latest_verify_activity(tasks, store)
         for g in groups:
+            # Ignored groups are dropped before any cache lookup or /snapshots
+            # call, so suppression is also a cost saving. Datastore group and
+            # backup counts above are unaffected: the data is still on disk.
+            if opts.ignore:
+                path = u.group_path(store, ns, g["backup-type"], g["backup-id"])
+                if any(p.search(path) for p in opts.ignore):
+                    stats["ignored"] += 1
+                    continue
             last_backup = int(g.get("last-backup", 0) or 0)
             key = group_key(store, ns, g["backup-type"], g["backup-id"])
             prev = cache.get(key)
