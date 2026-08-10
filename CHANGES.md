@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New
 
 ### Changed
+- **Sync, verify and prune jobs now have separate check-parameter rulesets.**
+  The three job kinds run on very different schedules and carry very different
+  urgency, so each now has its own "Maximum age since last successful run"
+  levels. The former `PBS job (sync/verify/prune)` ruleset keeps its internal
+  name (`oposs_pbs_job`) and is now titled `PBS sync job`; two new rulesets
+  `PBS verify job` (`oposs_pbs_verify_job`) and `PBS prune job`
+  (`oposs_pbs_prune_job`) were added. Existing rules therefore keep applying —
+  but only to sync jobs. If you relied on one rule covering verify or prune
+  ages as well, re-create it under the matching new ruleset. Defaults are
+  unchanged (no age levels).
 
 ### Fixed
 

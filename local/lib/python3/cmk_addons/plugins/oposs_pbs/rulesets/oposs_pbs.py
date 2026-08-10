@@ -155,10 +155,17 @@ rule_spec_oposs_pbs_datastore = CheckParameters(
     condition=HostAndItemCondition(item_title=Title("Datastore")))
 
 
-def _job_form() -> Dictionary:
+def _job_form(help_text: Help) -> Dictionary:
+    """Age-levels form for one job kind.
+
+    Sync, verify and prune run on very different schedules and carry very
+    different urgency, so each kind gets its own ruleset instead of sharing
+    one set of levels.
+    """
     return Dictionary(elements={
         "age_levels": DictElement(parameter_form=SimpleLevels(
             title=Title("Maximum age since last successful run"),
+            help_text=help_text,
             level_direction=LevelDirection.UPPER,
             form_spec_template=TimeSpan(displayed_magnitudes=[TimeMagnitude.DAY,
                                                               TimeMagnitude.HOUR]),
@@ -167,10 +174,43 @@ def _job_form() -> Dictionary:
     })
 
 
-rule_spec_oposs_pbs_job = CheckParameters(
-    name="oposs_pbs_job", title=Title("PBS job (sync/verify/prune)"),
-    topic=Topic.STORAGE, parameter_form=_job_form,
-    condition=HostAndItemCondition(item_title=Title("Job")))
+def _sync_job_form() -> Dictionary:
+    return _job_form(Help(
+        "Levels on the time since the last successful sync run finished. A "
+        "stalled sync means an off-site copy is falling behind, so this is "
+        "usually the tightest of the three job thresholds."))
+
+
+def _verify_job_form() -> Dictionary:
+    return _job_form(Help(
+        "Levels on the time since the last successful verification run "
+        "finished. Verification typically runs on a much longer cycle than "
+        "sync, so set these levels accordingly."))
+
+
+def _prune_job_form() -> Dictionary:
+    return _job_form(Help(
+        "Levels on the time since the last successful prune run finished. A "
+        "missed prune only costs disk space, so these levels are usually the "
+        "most relaxed of the three."))
+
+
+# Keeps the legacy ruleset name so existing rules -- which used to cover all
+# three job kinds -- stay in force for sync jobs.
+rule_spec_oposs_pbs_sync_job = CheckParameters(
+    name="oposs_pbs_job", title=Title("PBS sync job"),
+    topic=Topic.STORAGE, parameter_form=_sync_job_form,
+    condition=HostAndItemCondition(item_title=Title("Sync job")))
+
+rule_spec_oposs_pbs_verify_job = CheckParameters(
+    name="oposs_pbs_verify_job", title=Title("PBS verify job"),
+    topic=Topic.STORAGE, parameter_form=_verify_job_form,
+    condition=HostAndItemCondition(item_title=Title("Verify job")))
+
+rule_spec_oposs_pbs_prune_job = CheckParameters(
+    name="oposs_pbs_prune_job", title=Title("PBS prune job"),
+    topic=Topic.STORAGE, parameter_form=_prune_job_form,
+    condition=HostAndItemCondition(item_title=Title("Prune job")))
 
 
 def _backup_form() -> Dictionary:

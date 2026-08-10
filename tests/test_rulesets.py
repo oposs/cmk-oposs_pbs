@@ -5,10 +5,20 @@ rs = load_module("rulesets/oposs_pbs.py", "oposs_pbs_rulesets")
 def test_specs_exist_with_matching_names():
     assert rs.rule_spec_special_agent_oposs_pbs.kwargs["name"] == "oposs_pbs"
     assert rs.rule_spec_oposs_pbs_datastore.kwargs["name"] == "oposs_pbs_datastore"
-    assert rs.rule_spec_oposs_pbs_job.kwargs["name"] == "oposs_pbs_job"
+    # Sync keeps the legacy name so pre-existing rules keep applying to it.
+    assert rs.rule_spec_oposs_pbs_sync_job.kwargs["name"] == "oposs_pbs_job"
+    assert rs.rule_spec_oposs_pbs_verify_job.kwargs["name"] == "oposs_pbs_verify_job"
+    assert rs.rule_spec_oposs_pbs_prune_job.kwargs["name"] == "oposs_pbs_prune_job"
     assert rs.rule_spec_oposs_pbs_backup.kwargs["name"] == "oposs_pbs_backup"
     assert rs.rule_spec_oposs_pbs_server.kwargs["name"] == "oposs_pbs_server"
     assert rs.rule_spec_oposs_pbs_backups.kwargs["name"] == "oposs_pbs_backups"
+
+
+def test_each_job_kind_has_its_own_age_levels():
+    # Sync/verify/prune differ in urgency, so their levels must be separately
+    # configurable -- three distinct rulesets, each carrying age_levels.
+    for form in (rs._sync_job_form(), rs._verify_job_form(), rs._prune_job_form()):
+        assert "age_levels" in form.kwargs["elements"]
 
 
 def test_piggyback_template_defaults_to_guest():

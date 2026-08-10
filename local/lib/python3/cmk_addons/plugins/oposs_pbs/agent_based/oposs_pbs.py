@@ -275,12 +275,12 @@ check_plugin_oposs_pbs_sync = CheckPlugin(
 check_plugin_oposs_pbs_verify = CheckPlugin(
     name="oposs_pbs_verify", service_name="PBS Verify Job %s", sections=["oposs_pbs_jobs"],
     discovery_function=discover_oposs_pbs_verify, check_function=check_oposs_pbs_verify,
-    check_ruleset_name="oposs_pbs_job", check_default_parameters=_JOB_DEFAULTS)
+    check_ruleset_name="oposs_pbs_verify_job", check_default_parameters=_JOB_DEFAULTS)
 
 check_plugin_oposs_pbs_prune = CheckPlugin(
     name="oposs_pbs_prune", service_name="PBS Prune Job %s", sections=["oposs_pbs_jobs"],
     discovery_function=discover_oposs_pbs_prune, check_function=check_oposs_pbs_prune,
-    check_ruleset_name="oposs_pbs_job", check_default_parameters=_JOB_DEFAULTS)
+    check_ruleset_name="oposs_pbs_prune_job", check_default_parameters=_JOB_DEFAULTS)
 
 
 # --- PBS Backup freshness (piggyback) ---------------------------------------

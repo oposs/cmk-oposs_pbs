@@ -14,7 +14,9 @@ description:
    state, and the datastore-wide deduplication factor (index-data-bytes /
    disk-bytes from gc-status).
  - {PBS Sync Job}, {PBS Verify Job}, {PBS Prune Job}: last scheduled-run state
-   with optional age levels.
+   with optional age levels. Each job kind has its own check-parameter ruleset
+   ("PBS sync job", "PBS verify job", "PBS prune job"), so the three can carry
+   independent WARN/CRIT ages.
  - {PBS Backup <datastore>} (piggyback, on the guest's host): backup freshness as
    "missed backups" against the observed snapshot interval, newest-snapshot
    verification state, and the logical protected-data size.
