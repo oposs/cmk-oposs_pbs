@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New
 
 ### Changed
+
+### Fixed
+
+## 1.2.0 - 2026-08-10
+### Changed
 - **Sync, verify and prune jobs now have separate check-parameter rulesets.**
   The three job kinds run on very different schedules and carry very different
   urgency, so each now has its own "Maximum age since last successful run"
@@ -20,8 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   but only to sync jobs. If you relied on one rule covering verify or prune
   ages as well, re-create it under the matching new ruleset. Defaults are
   unchanged (no age levels).
-
-### Fixed
 
 ## 1.1.0 - 2026-08-06
 ### New
