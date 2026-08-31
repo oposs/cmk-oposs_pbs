@@ -53,3 +53,7 @@ reporting.
 ## Development
 
 For contributor setup, create a symlink from your Checkmk's `local/lib/check_mk` directory to this repository's `local/lib/check_mk` directory to enable live testing of changes.
+
+## License
+
+GNU General Public License v2 - OETIKER+PARTNER AG. See [LICENSE](LICENSE).

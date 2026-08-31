@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New
 
 ### Changed
+- Licence is now GNU General Public License v2, aligning this plugin
+  with the rest of the OPOSS Checkmk plugin set. The repository
+  previously carried no LICENSE file at all.
 
 ### Fixed
 
