@@ -7,7 +7,7 @@ class FakePbs:
         self.routes = routes
         self.calls = []
 
-    def get(self, path, params=None):
+    def get(self, path, params=None, timeout=None):
         self.calls.append((path, dict(params or {})))
         v = self.routes[path]
         return v(params or {}) if callable(v) else v

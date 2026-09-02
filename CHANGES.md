@@ -15,6 +15,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previously carried no LICENSE file at all.
 
 ### Fixed
+- **A backup group no longer loses its guest name while a snapshot is still
+  being written.** A running backup — or, more commonly, a sync job pulling a
+  namespace from another PBS — is listed by `/snapshots` before its manifest
+  exists: no size, no comment, no verification. The agent took that entry as
+  the group's newest snapshot, so the guest name went empty and the group fell
+  back to a piggyback host named after its bare VMID (`105` instead of
+  `abacus`). The real host then received no data for as long as the write ran,
+  which on a multi-hour sync is far longer than `piggyback_max_cachefile_age`
+  — its `PBS Backup ...` service went stale and vanished, and reappeared once
+  the sync finished. Unfinished snapshots are now skipped when determining a
+  group's guest name, size and verification state, and a guest name already
+  known is never overwritten with an empty one.
+- **The reported backup cadence is no longer stretched by pruned history.** The
+  median gap was taken over every retained snapshot, but prune thins the old
+  end of a retention into weeklies and monthlies. A daily backup could
+  therefore report a cadence of 2.5 days, which delayed the stale-backup alarm
+  from 2 days to 5. The cadence is now measured over the seven most recent
+  gaps, so it reflects how often the backup currently runs.
+- **A group whose facts could not be read is no longer cached as fresh.** When
+  a refresh found no finished snapshot there was nothing to learn, but the
+  empty result was stored with the current `last_backup`, so the cache gate
+  considered it up to date. The group then sat on its bare VMID until the next
+  backup or verify job — hours, or a whole day. Such a refresh now leaves the
+  entry dirty and the next run retries it.
+- **Learned state moved from `tmp/` to `var/`.** `$OMD_ROOT/tmp` is a tmpfs
+  that `omd restart` empties, and the cache holds learned guest names and
+  cadence history rather than scratch. Losing it put every backup group on its
+  bare VMID until the refresh budget had worked through the backlog. Measured
+  against a 38-group PBS, a cold start took five runs to clear.
+- **The refresh budget is now a real deadline, and defaults below Checkmk's
+  check timeout.** A `/snapshots` call started just under the budget could
+  outlive it by a whole HTTP timeout; a run that overruns `cmc_check_timeout`
+  (60 s by default) is killed and prints nothing at all, so every guest of that
+  PBS loses its record for that run. Each call is now capped at the remaining
+  budget, a refresh that cannot finish is not started, and `--refresh-budget`
+  defaults to 45 s instead of 120 s.
+- **One failed reading no longer discards unrelated data.** A failure of
+  `/version` marked the whole server unreachable; a failure of `/status`,
+  `/namespace`, or a single namespace's `/groups` dropped every backup group of
+  that datastore. Each call is now contained: the version is optional, a lost
+  namespace index falls back to the root namespace, a failing namespace is
+  skipped on its own, and `/status` failure costs only the datastore's capacity
+  and GC fields.
 
 ## 1.2.0 - 2026-08-10
 ### Changed

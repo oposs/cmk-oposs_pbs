@@ -45,11 +45,16 @@ class PbsClient:
         self._session = requests.Session()
         self._session.headers["Authorization"] = f"PBSAPIToken {token_id}:{token_secret}"
 
-    def get(self, path: str, params: dict | None = None) -> Any:
+    def get(self, path: str, params: dict | None = None,
+            timeout: float | None = None) -> Any:
+        """GET an API path. `timeout` overrides the client default for this one
+        call, so a caller working against a deadline cannot be outlived by its
+        own request."""
         url = self._base + path
         try:
-            resp = self._session.get(url, params=params, verify=self._verify,
-                                     timeout=self._timeout)
+            resp = self._session.get(
+                url, params=params, verify=self._verify,
+                timeout=self._timeout if timeout is None else timeout)
             resp.raise_for_status()
         except requests.RequestException as exc:
             raise PbsError(f"GET {path} failed: {exc}") from exc

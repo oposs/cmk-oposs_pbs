@@ -153,7 +153,7 @@ class _FailPath(FakePbs):
         super().__init__(routes)
         self._fail = fail_substr
 
-    def get(self, path, params=None):
+    def get(self, path, params=None, timeout=None):
         if self._fail in path:
             raise RuntimeError(f"read timeout on {path}")
         return super().get(path, params)
@@ -203,13 +203,20 @@ def test_group_refresh_failure_reuses_cached_value():
 
 
 def test_store_failure_is_isolated(capsys):
-    """A failure enumerating one datastore must not abort the agent."""
+    """A failure enumerating one datastore must not abort the agent.
+
+    The datastore itself is still reported, with only the fields that /status
+    supplies left empty -- see
+    test_datastore_status_failure_still_collects_backup_groups for why the
+    whole store is no longer abandoned."""
     c = _FailPath(sample_routes(NOW), "/status")
     host, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
 
     assert host["oposs_pbs_server"]["reachable"] is True
     assert host["oposs_pbs_jobs"]["sync"]  # jobs still collected
-    assert host["oposs_pbs_datastore"] == {}  # the broken store is skipped
+    ds = host["oposs_pbs_datastore"]["main"]
+    assert ds["total"] is None and ds["used"] is None   # /status fields lost
+    assert ds["group_count"] == 1                       # group data intact
     assert "main" in capsys.readouterr().err
 
 
@@ -221,6 +228,8 @@ class _FakeBudget:
         self.n = n
     def allow(self):
         return self.n > 0
+    def remaining(self):
+        return None            # count-based, no wall-clock deadline
     def record(self, _dt):
         self.n -= 1
 
@@ -374,3 +383,183 @@ def test_no_ignore_patterns_changes_nothing():
     host, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
     assert len(pig) == 1
     assert host["oposs_pbs_server"]["ignored_backups"] == 0
+
+
+def _snap(t, **kw):
+    return {"backup-type": "vm", "backup-id": "100", "backup-time": t, **kw}
+
+
+def test_in_flight_snapshot_does_not_steal_the_guest_name():
+    """While a sync or backup writes a snapshot, PBS already lists it but its
+    manifest is missing: no size, no comment. Taking that entry as "newest"
+    empties the guest name, so the backup lands on a piggyback host named
+    after the bare VMID and the real host loses its service."""
+    opts = _opts(); opts.piggyback_template = "{guest}"
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/groups"] = [
+        {"backup-type": "vm", "backup-id": "100", "last-backup": NOW - 50,
+         "backup-count": 8}]
+    routes["/admin/datastore/main/snapshots"] = \
+        sample_routes(NOW)["/admin/datastore/main/snapshots"] + [_snap(NOW - 50)]
+    _, pig = collect.collect(FakePbs(routes), opts, cache.StateCache({}), NOW)
+    assert pig[0][0] == "web01"
+
+
+def test_in_flight_snapshot_does_not_define_size_and_verify_state():
+    """Same entry, same reason: an unfinished snapshot reports no size and no
+    verification, which would flip a verified group to "not verified" and its
+    protected data to zero."""
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/groups"] = [
+        {"backup-type": "vm", "backup-id": "100", "last-backup": NOW - 50,
+         "backup-count": 8}]
+    routes["/admin/datastore/main/snapshots"] = \
+        sample_routes(NOW)["/admin/datastore/main/snapshots"] + [_snap(NOW - 50)]
+    _, pig = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    assert pig[0][1]["data_size"] == 41_000_000_000
+    assert pig[0][1]["verify_state"] == "ok"
+
+
+def test_cached_guest_survives_a_refresh_that_finds_no_finished_snapshot():
+    """Last line of defence: if every snapshot in the list is unfinished, a
+    guest name already learned must not be overwritten with an empty one."""
+    opts = _opts(); opts.piggyback_template = "{guest}"
+    st = cache.StateCache({})
+    collect.collect(FakePbs(sample_routes(NOW)), opts, st, NOW)  # learns "web01"
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/groups"] = [
+        {"backup-type": "vm", "backup-id": "100", "last-backup": NOW - 50,
+         "backup-count": 8}]                      # changed -> forces a refresh
+    routes["/admin/datastore/main/snapshots"] = [_snap(NOW - 50)]
+    _, pig = collect.collect(FakePbs(routes), opts, st, NOW)
+    assert pig[0][0] == "web01"
+
+
+def test_cadence_measured_from_recent_snapshots_not_pruned_history():
+    """Prune thins the old end of the retention into weeklies and monthlies, so
+    the median over the whole list reports a cadence several times too long and
+    the stale-backup alarm fires days late. Only the dense recent end shows how
+    often the backup actually runs."""
+    daily = [NOW - 100 - DAY * i for i in range(8)]
+    monthly = [NOW - 100 - 8 * DAY - 30 * DAY * i for i in range(1, 13)]
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/snapshots"] = [
+        _snap(t, size=1, comment="web01") for t in sorted(monthly + daily)]
+    _, pig = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    assert pig[0][1]["interval"] == DAY
+
+
+# --- an unresolved guest name must not be cached as fresh -------------------
+
+def test_unresolved_guest_name_is_retried_on_the_next_run():
+    """If a refresh finds no finished snapshot there is no guest name to learn.
+    Marking the entry fresh anyway would freeze the empty name until the next
+    backup or verify job -- hours, or a whole day -- and the group would sit on
+    its bare VMID for all of it. The entry must stay dirty and be retried."""
+    opts = _opts(); opts.piggyback_template = "{guest}"
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/snapshots"] = [_snap(NOW - 100)]  # in flight
+    st = cache.StateCache({})
+    collect.collect(FakePbs(routes), opts, st, NOW)
+    c = FakePbs(routes)
+    collect.collect(c, opts, st, NOW)
+    assert any(p.endswith("/snapshots") for p, _ in c.calls)
+
+
+# --- the refresh budget must be a hard deadline -----------------------------
+
+def test_refresh_budget_reports_remaining_time():
+    b = collect.RefreshBudget(45.0)
+    b.record(30.0)
+    assert b.remaining() == 15.0
+
+
+def test_unlimited_budget_has_no_remaining_deadline():
+    assert collect.RefreshBudget(None).remaining() is None
+
+
+class _TimeoutSpy(FakePbs):
+    """Records the per-call timeout the collector asks for."""
+    def __init__(self, routes):
+        super().__init__(routes)
+        self.timeouts = []
+
+    def get(self, path, params=None, timeout=None):
+        if path.endswith("/snapshots"):
+            self.timeouts.append(timeout)
+        return super().get(path, params)
+
+
+def test_snapshot_call_timeout_is_capped_by_the_remaining_budget():
+    """A request may run until its own timeout, so a refresh started just under
+    the budget can overshoot it by a whole timeout. Checkmk kills the agent at
+    cmc_check_timeout and the killed run prints nothing at all -- every guest of
+    that PBS loses its record. The call must not outlive the budget."""
+    c = _TimeoutSpy(sample_routes(NOW))
+    budget = collect.RefreshBudget(12.0)
+    collect.collect(c, _opts(), cache.StateCache({}), NOW, budget=budget)
+    assert c.timeouts and all(t is not None and t <= 12.0 for t in c.timeouts)
+
+
+# --- one failed reading must not drop unrelated data ------------------------
+
+def test_datastore_status_failure_still_collects_backup_groups():
+    """/status feeds only the datastore section (capacity, GC). It has nothing
+    to do with the backup groups, so its failure must not cost every guest of
+    that datastore its piggyback record."""
+    c = _FailPath(sample_routes(NOW), "/status")
+    host, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
+    assert host["oposs_pbs_server"]["reachable"] is True
+    assert len(pig) == 1
+
+
+def test_namespace_listing_failure_falls_back_to_the_root_namespace():
+    """The root namespace always exists. Losing the namespace index is no
+    reason to stop monitoring the groups that live in it."""
+    c = _FailPath(sample_routes(NOW), "/namespace")
+    _, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
+    assert len(pig) == 1
+    assert pig[0][1]["ns"] == ""
+
+
+def test_group_listing_failure_in_one_namespace_keeps_the_others():
+    """Namespaces are read one call at a time, so a failure is known to affect
+    exactly one of them."""
+    routes = _two_group_routes(NOW)
+    routes["/admin/datastore/main/namespace"] = [{"ns": ""}, {"ns": "tenantA"}]
+
+    class _FailOneNs(FakePbs):
+        def get(self, path, params=None, timeout=None):
+            if path.endswith("/groups") and (params or {}).get("ns") == "tenantA":
+                raise RuntimeError("read timeout")
+            return super().get(path, params)
+
+    host, pig = collect.collect(_FailOneNs(routes), _opts(),
+                                cache.StateCache({}), NOW)
+    assert {rec["ns"] for _, rec in pig} == {""}
+    assert len(pig) == 2
+    # ... and the datastore section survives too, rather than the whole store
+    # being abandoned half-way through.
+    assert host["oposs_pbs_datastore"]["main"]["group_count"] == 2
+
+
+def test_version_failure_does_not_declare_the_server_unreachable():
+    """The version string is cosmetic; a least-privilege token may not even be
+    allowed to read it. Only the datastore index is essential."""
+    c = _FailPath(sample_routes(NOW), "/version")
+    host, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
+    assert host["oposs_pbs_server"]["reachable"] is True
+    assert host["oposs_pbs_server"]["version"] is None
+    assert len(pig) == 1
+
+
+def test_budget_does_not_start_a_refresh_that_cannot_finish():
+    """Capping a call at the leftover budget means a call started near the end
+    is doomed: it burns the rest of the budget and warns about a timeout that
+    was never PBS's fault. Once the cost of a refresh is known, only start one
+    that still fits."""
+    b = collect.RefreshBudget(10.0)
+    b.record(4.0)          # a refresh costs about 4s
+    assert b.allow() is True
+    b.record(4.0)          # 2s left, less than a refresh costs
+    assert b.allow() is False

@@ -140,3 +140,35 @@ def test_invalid_ignore_pattern_fails_loudly(tmp_path):
     assert proc.returncode != 0
     assert "vm/[100" in proc.stderr
     assert proc.stdout == ""
+
+
+def _load_agent():
+    """The agent has no .py suffix, so it needs an explicit source loader."""
+    import importlib.util
+    from importlib.machinery import SourceFileLoader
+    loader = SourceFileLoader("agent_oposs_pbs", str(AGENT))
+    spec = importlib.util.spec_from_loader("agent_oposs_pbs", loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["agent_oposs_pbs"] = mod
+    loader.exec_module(mod)
+    return mod
+
+
+def test_learned_state_is_kept_outside_the_tmpfs(monkeypatch):
+    """$OMD_ROOT/tmp is a tmpfs: `omd restart` empties it. The cache holds
+    learned guest names and cadence history, not throw-away scratch, and losing
+    it makes every backup group fall back to its bare VMID until the refresh
+    budget has worked through the backlog -- minutes of every guest showing an
+    unmapped backup. It belongs under var/, which survives a restart."""
+    monkeypatch.setenv("OMD_ROOT", "/omd/sites/mysite")
+    agent = _load_agent()
+    args = agent.parse_args(["--token-id", "t", "--token-secret", "s", "pbs1"])
+    assert agent._cache_path(args) == \
+        "/omd/sites/mysite/var/check_mk/oposs_pbs/pbs1.json"
+
+
+def test_explicit_cache_dir_still_wins():
+    agent = _load_agent()
+    args = agent.parse_args(["--token-id", "t", "--token-secret", "s",
+                             "--cache-dir", "/somewhere/else", "pbs1"])
+    assert agent._cache_path(args) == "/somewhere/else/pbs1.json"

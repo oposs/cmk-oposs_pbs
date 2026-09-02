@@ -55,3 +55,13 @@ def test_latest_task_picks_most_recent_finished():
     got = u.latest_task(tasks, "syncjob", lambda wid: wid.rsplit(":", 1)[-1] == "job1")
     assert got["starttime"] == 30 and got["status"] == "some error"
     assert u.task_running(tasks, "syncjob", lambda wid: wid.endswith("job1")) is True
+
+
+def test_median_interval_recent_ignores_older_gaps():
+    """`recent` limits the median to the newest N gaps, so a pruned-out old end
+    cannot stretch the reported cadence."""
+    day = 86400
+    times = [0, 30 * day, 60 * day, 90 * day, 120 * day,
+             121 * day, 122 * day, 123 * day]
+    assert u.median_interval(times) == 30 * day
+    assert u.median_interval(times, recent=3) == day

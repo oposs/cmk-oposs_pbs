@@ -7,11 +7,20 @@ from typing import Callable
 _VERIFY_TYPES = {"verificationjob", "verify", "verify_group", "verify_snapshot"}
 
 
-def median_interval(times: list[int]) -> int | None:
+def median_interval(times: list[int], recent: int | None = None) -> int | None:
+    """Median gap between the given backup times.
+
+    `recent` keeps only the newest N gaps. Prune thins the old end of a
+    retention into weeklies and monthlies, so a median over the whole list
+    reports a cadence several times longer than the backup actually runs at,
+    which delays the stale-backup alarm by days.
+    """
     if len(times) < 2:
         return None
     ordered = sorted(times)
     gaps = [b - a for a, b in zip(ordered, ordered[1:]) if b > a]
+    if recent:
+        gaps = gaps[-recent:]
     if not gaps:
         return None
     return int(median(gaps))

@@ -33,7 +33,10 @@ def parse_args(argv):
     p.add_argument("--task-limit", type=int, default=1000)
     p.add_argument("--timeout", type=int, default=60)  # per-request HTTP timeout
     # Wall-clock ceiling on expensive /snapshots refreshes per run; 0 = unlimited.
-    p.add_argument("--refresh-budget", type=int, default=120)
+    # Kept below Checkmk's cmc_check_timeout (60s by default): a run that
+    # overruns it is killed and prints nothing at all, so every guest of this
+    # PBS loses its piggyback record for that run.
+    p.add_argument("--refresh-budget", type=int, default=45)
     p.add_argument("--piggyback-template", default="{guest}")
     p.add_argument("--piggyback-regex")  # "PATTERN=REPLACEMENT"
     p.add_argument("--no-piggyback-datastore", action="append", default=[])
@@ -53,7 +56,7 @@ def parse_args(argv):
 class _FileClient:
     def __init__(self, routes):
         self._r = routes
-    def get(self, path, params=None):
+    def get(self, path, params=None, timeout=None):
         return self._r.get(path)
 
 
@@ -67,8 +70,15 @@ def _make_client(args):
 
 
 def _cache_path(args):
+    """Where the learned per-group state lives.
+
+    Under var/, not tmp/: $OMD_ROOT/tmp is a tmpfs that `omd restart` empties.
+    This cache is not scratch -- it holds the guest names and cadence history
+    the agent has learned, and losing it makes every backup group fall back to
+    its bare VMID until the refresh budget has worked through the backlog.
+    """
     base = args.cache_dir or os.path.join(
-        os.environ.get("OMD_ROOT", "/tmp"), "tmp", "check_mk", "oposs_pbs")
+        os.environ.get("OMD_ROOT", "/var/tmp"), "var", "check_mk", "oposs_pbs")
     return os.path.join(base, f"{args.hostaddress}.json")
 
 

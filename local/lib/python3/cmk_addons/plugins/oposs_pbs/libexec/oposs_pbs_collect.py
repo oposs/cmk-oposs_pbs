@@ -4,6 +4,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
+from statistics import median
 
 import oposs_pbs_util as u
 from oposs_pbs_cache import StateCache, group_key
@@ -24,6 +25,10 @@ _MAX_OBSERVATIONS = 32
 # Persist the cache at most this often while iterating a datastore, so a long
 # cold run that gets killed still leaves forward progress on disk.
 _SAVE_INTERVAL_S = 2.0
+# Number of newest gaps the cadence is measured over. Prune thins the old end
+# of a retention into weeklies and monthlies; a median over the whole list
+# reports a cadence several times too long and delays the stale alarm.
+_CADENCE_SAMPLES = 7
 
 
 def _warn(msg: str) -> None:
@@ -41,12 +46,35 @@ class RefreshBudget:
         self.limit = limit_s
         self._clock = clock
         self.spent = 0.0
+        self._costs: list[float] = []
 
     def allow(self) -> bool:
-        return self.limit is None or self.spent < self.limit
+        if self.limit is None:
+            return True
+        left = self.limit - self.spent
+        if left <= 0:
+            return False
+        # A call is capped at the leftover budget (see remaining()), so one
+        # started near the end is doomed: it burns what is left and warns about
+        # a timeout that was never PBS's fault. Once we know what a refresh
+        # costs, only start one that still fits.
+        return left >= median(self._costs) if self._costs else True
+
+    def remaining(self) -> float | None:
+        """Seconds of budget left, or None when unlimited.
+
+        Used as the per-request timeout so a refresh started just under the
+        budget cannot overshoot it by a whole HTTP timeout. An overshoot gets
+        the agent killed by Checkmk's check timeout, and a killed run prints
+        nothing at all -- every guest of that PBS loses its record.
+        """
+        if self.limit is None:
+            return None
+        return max(0.0, self.limit - self.spent)
 
     def record(self, dt: float) -> None:
         self.spent += dt
+        self._costs.append(dt)
 
 
 def _merge_observations(prev: dict | None, last_backup: int) -> list[int]:
@@ -61,7 +89,7 @@ def _effective_interval(entry: dict, observations: list[int]):
     the cadence implied by observed last-backup timestamps."""
     if entry.get("interval_known"):
         return entry.get("interval"), True
-    iv = u.median_interval(observations)
+    iv = u.median_interval(observations, recent=_CADENCE_SAMPLES)
     if iv is not None:
         return iv, True
     return None, False
@@ -147,9 +175,19 @@ def _collect_jobs(client, tasks):
 
 
 def _namespaces(client, store):
+    """List the namespaces of a datastore, root first.
+
+    The root namespace always exists, so losing the index is no reason to stop
+    monitoring the groups that live in it."""
     seen = {""}
     out = [""]
-    for entry in client.get(f"/admin/datastore/{store}/namespace") or []:
+    try:
+        entries = client.get(f"/admin/datastore/{store}/namespace") or []
+    except Exception as exc:
+        _warn(f"namespace listing for {store!r} failed, "
+              f"root namespace only: {exc}")
+        return out
+    for entry in entries:
         ns = entry.get("ns", "")
         if ns not in seen:
             seen.add(ns)
@@ -157,22 +195,31 @@ def _namespaces(client, store):
     return out
 
 
-def _refresh_group(client, store, ns, group, now):
+def _refresh_group(client, store, ns, group, now, timeout=None):
     """Fetch this group's snapshots; return
-    (interval, known, verify_state, size, guest)."""
+    (interval, known, verify_state, size, guest, resolved).
+
+    `resolved` is False when the list holds no finished snapshot, so the
+    caller knows the group's facts could not be read at all."""
     snaps = client.get(f"/admin/datastore/{store}/snapshots", params={
         "ns": ns, "backup-type": group["backup-type"],
         "backup-id": group["backup-id"],
-    }) or []
+    }, timeout=timeout) or []
     times = [int(s["backup-time"]) for s in snaps if s.get("backup-time") is not None]
-    interval = u.median_interval(times)
-    newest = max(snaps, key=lambda s: s.get("backup-time", 0)) if snaps else {}
+    interval = u.median_interval(times, recent=_CADENCE_SAMPLES)
+    # A snapshot still being written (a running backup, or a sync in flight)
+    # is already listed but carries no manifest: no size, no comment, no
+    # verification. Letting it be "newest" would blank the guest name -- and
+    # the group would jump to a piggyback host named after its bare VMID,
+    # starving the real host of data until the write finishes.
+    finished = [s for s in snaps if s.get("size") is not None]
+    newest = max(finished, key=lambda s: s.get("backup-time", 0)) if finished else {}
     vstate = (newest.get("verification") or {}).get("state") or "none"
     size = int(newest.get("size", 0) or 0)
     # PVE writes the guest name into the snapshot comment (notes-template
     # {{guestname}}); it identifies the piggyback host.
     guest = (newest.get("comment") or "").strip()
-    return interval, interval is not None, vstate, size, guest
+    return interval, interval is not None, vstate, size, guest, bool(finished)
 
 
 def collect(client, opts: Options, cache: StateCache, now: int,
@@ -180,13 +227,19 @@ def collect(client, opts: Options, cache: StateCache, now: int,
     if budget is None:
         budget = RefreshBudget(None)
     host: dict = {}
+    node = node_name(client)
     try:
-        version = (client.get("/version") or {}).get("version")
-        node = node_name(client)
         stores_raw = [d["store"] for d in (client.get("/admin/datastore") or [])]
     except Exception as exc:  # unreachable / auth failure
         host["oposs_pbs_server"] = {"reachable": False, "error": str(exc)}
         return host, []
+    # The version string is cosmetic, and a least-privilege token may not be
+    # allowed to read it at all. Losing it must not cost us every backup group.
+    try:
+        version = (client.get("/version") or {}).get("version")
+    except Exception as exc:
+        _warn(f"version fetch failed: {exc}")
+        version = None
 
     stores = select_datastores(stores_raw, opts)
     try:
@@ -262,12 +315,26 @@ class _Saver:
 
 def _collect_store(client, store, opts, cache, tasks, now, datastores,
                    piggyback, budget, saver, unmapped, stats):
-    status = client.get(f"/admin/datastore/{store}/status") or {}
+    # /status feeds only the datastore section (capacity, GC). It says nothing
+    # about the backup groups, so its failure must not cost every guest of this
+    # datastore its piggyback record.
+    try:
+        status = client.get(f"/admin/datastore/{store}/status") or {}
+    except Exception as exc:
+        _warn(f"status fetch for {store!r} failed, capacity/GC degraded: {exc}")
+        status = {}
     gcs = status.get("gc-status") or {}
     group_count = backup_count = 0
     for ns in _namespaces(client, store):
-        groups = client.get(f"/admin/datastore/{store}/groups",
-                            params={"ns": ns}) or []
+        # Namespaces are read one call at a time, so a failure is known to
+        # affect exactly this one; the others are still monitored.
+        try:
+            groups = client.get(f"/admin/datastore/{store}/groups",
+                                params={"ns": ns}) or []
+        except Exception as exc:
+            _warn(f"group listing for {store}/{ns} failed, "
+                  f"namespace skipped: {exc}")
+            continue
         group_count += len(groups)
         backup_count += sum(int(g.get("backup-count", 0)) for g in groups)
         if store in opts.no_piggyback:
@@ -291,15 +358,25 @@ def _collect_store(client, store, opts, cache, tasks, now, datastores,
                     and budget.allow():
                 t0 = time.monotonic()
                 try:
-                    interval, known, vstate, size, guest = _refresh_group(
-                        client, store, ns, g, now)
-                    cache.put(key, {"last_backup": last_backup,
-                                    "verify_checked_at": verify_activity,
-                                    "interval": interval, "interval_known": known,
-                                    "verify_state": vstate, "data_size": size,
-                                    "guest": guest,
-                                    "observations": observations})
-                    refreshed = True
+                    interval, known, vstate, size, guest, resolved = _refresh_group(
+                        client, store, ns, g, now, timeout=budget.remaining())
+                    # Last line of defence: never overwrite a name we already
+                    # know with an empty one.
+                    if not guest and prev:
+                        guest = (prev.get("guest") or "").strip()
+                    # No finished snapshot in the list means we learned nothing.
+                    # Caching that as fresh would freeze the empty guest name
+                    # until the next backup or verify job -- hours or a whole
+                    # day of the group sitting on its bare VMID. Leave the
+                    # entry dirty instead, so the next run tries again.
+                    if resolved:
+                        cache.put(key, {"last_backup": last_backup,
+                                        "verify_checked_at": verify_activity,
+                                        "interval": interval, "interval_known": known,
+                                        "verify_state": vstate, "data_size": size,
+                                        "guest": guest,
+                                        "observations": observations})
+                        refreshed = True
                 except Exception as exc:
                     # Slow/failed /snapshots: keep any prior cached value (do
                     # NOT mark fresh, so needs_refresh stays true and we retry
