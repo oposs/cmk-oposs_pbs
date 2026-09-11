@@ -130,3 +130,45 @@ def test_gc_section_from_an_older_agent_does_not_claim_never(monkeypatch):
     text = _summaries(res)
     assert "never" not in text.lower()
     assert "No GC run found" in text
+
+
+def test_gc_age_is_measured_from_the_last_successful_run(monkeypatch):
+    """Regression: the age was only checked when the *last attempt* succeeded,
+    so a GC that aborts nightly kept the configured age levels permanently
+    inactive -- exactly when they were needed."""
+    params = dict(DEFAULTS, gc_age_levels=("fixed", (2 * DAY, 7 * DAY)))
+    res = _run(_gc_section(status="unknown", endtime=NOW - DAY,
+                           last_ok_endtime=NOW - 168 * DAY), params, monkeypatch)
+    states = [r.state for r in res if hasattr(r, "state")]
+    assert State.CRIT in states
+    text = _summaries(res)
+    assert "Last successful GC" in text and "168 days" in text
+    assert "Last GC failed" in text          # the attempt is reported too
+    assert "oposs_pbs_gc_age" in [r.name for r in res if isinstance(r, Metric)]
+
+
+def test_gc_age_metric_is_emitted_even_when_the_last_attempt_failed(monkeypatch):
+    res = _run(_gc_section(status="unknown", endtime=NOW - DAY,
+                           last_ok_endtime=NOW - 3 * DAY), monkeypatch=monkeypatch)
+    mt = {r.name: r.value for r in res if isinstance(r, Metric)}
+    assert mt["oposs_pbs_gc_age"] == 3 * DAY
+
+
+def test_gc_that_only_ever_failed_says_so(monkeypatch):
+    res = _run(_gc_section(status="unknown", endtime=NOW - DAY,
+                           last_ok_endtime=None, history_truncated=False),
+               monkeypatch=monkeypatch)
+    text = _summaries(res)
+    assert "No successful GC run" in text
+    assert "never" not in text.lower()       # it did run, it just never worked
+
+
+def test_successful_gc_reports_its_age_as_before(monkeypatch):
+    params = dict(DEFAULTS, gc_age_levels=("fixed", (2 * DAY, 7 * DAY)))
+    res = _run(_gc_section(status="OK", endtime=NOW - 3600,
+                           last_ok_endtime=NOW - 3600), params, monkeypatch)
+    gc_results = [r for r in res if hasattr(r, "state")
+                  and "GC" in (r.summary or r.notice or "")]
+    assert [r.state for r in gc_results] == [State.OK]
+    assert "Last successful GC" in _summaries(res)
+    assert "failed" not in _summaries(res)

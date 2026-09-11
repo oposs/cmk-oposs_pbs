@@ -689,3 +689,18 @@ def test_findings_of_deleted_jobs_and_datastores_are_dropped():
     kept = st.get(collect.u.TASK_CACHE_KEY)
     assert set(kept["garbage_collection"]["workers"]) == {"main"}
     assert set(kept["syncjob"]["workers"]) == {"r1:rs:main::s1"}
+
+
+def test_gc_state_exposes_when_gc_last_actually_succeeded():
+    routes = sample_routes(NOW)
+    routes["/nodes/localhost/tasks"] = task_route([
+        {"worker_type": "garbage_collection", "worker_id": "main",
+         "starttime": NOW - 100 * DAY, "endtime": NOW - 100 * DAY + 900,
+         "status": "OK"},
+        {"worker_type": "garbage_collection", "worker_id": "main",
+         "starttime": NOW - DAY, "endtime": NOW - DAY + 1, "status": "unknown"},
+    ])
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    gc = host["oposs_pbs_datastore"]["main"]["gc"]
+    assert gc["status"] == "unknown"
+    assert gc["last_ok_endtime"] == NOW - 100 * DAY + 900

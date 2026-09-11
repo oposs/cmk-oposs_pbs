@@ -160,10 +160,15 @@ def _fetch_task_history(client, node, opts, history, now) -> None:
 
 def _gc_state(history, store):
     latest = history.latest("garbage_collection", lambda w: w == store)
+    last_ok = history.latest_ok("garbage_collection", lambda w: w == store)
     running_since = history.running("garbage_collection", lambda w: w == store)
     return {
         "status": latest["status"] if latest else None,
         "endtime": latest["endtime"] if latest else None,
+        # When GC last actually completed, independent of the last attempt: a
+        # GC that aborts and is retried nightly must not read as a single
+        # recent failure when in truth nothing has been collected for months.
+        "last_ok_endtime": last_ok["endtime"] if last_ok else None,
         "running": running_since is not None,
         "running_since": running_since,
         # Whether "no run found" means "never ran" or only "not within reach":

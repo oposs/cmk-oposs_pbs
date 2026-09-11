@@ -137,6 +137,14 @@ class TaskHistory:
             if prev_start is None or start >= prev_start:
                 entry.update(starttime=start, endtime=task["endtime"],
                              status=task.get("status"))
+            # When the job last actually worked is tracked apart from the last
+            # attempt: a job that aborts and is retried every night would
+            # otherwise be indistinguishable from one that failed once, and the
+            # length of the outage -- the part that matters -- is lost.
+            if task.get("status") == "OK":
+                prev_ok = entry.get("ok_starttime")
+                if prev_ok is None or start >= prev_ok:
+                    entry.update(ok_starttime=start, ok_endtime=task["endtime"])
             # This start is accounted for, so it is no longer running.
             if entry.get("running_since") == start:
                 entry.pop("running_since", None)
@@ -197,6 +205,18 @@ class TaskHistory:
             if best is None or entry["starttime"] > best["starttime"]:
                 best = entry
         return dict(best) if best else None
+
+    def latest_ok(self, worker_type: str, match: Callable[[str], bool]):
+        """Newest run of this type that actually succeeded, as
+        {"starttime", "endtime"}, or None if none is known."""
+        best = None
+        for _wid, entry in self._items(worker_type, match):
+            if entry.get("ok_starttime") is None:
+                continue
+            if best is None or entry["ok_starttime"] > best["ok_starttime"]:
+                best = entry
+        return ({"starttime": best["ok_starttime"], "endtime": best["ok_endtime"]}
+                if best else None)
 
     def running(self, worker_type: str, match: Callable[[str], bool]):
         """Start time of a matching run still in flight, or None."""

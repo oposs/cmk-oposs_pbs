@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one kept running -- including the case where GC aborts and is retried nightly.
   The last completed run is now always evaluated, and the running one is
   reported alongside it with how long it has been going.
+- **The garbage collection age is now measured from the last *successful*
+  run, not from the last attempt.** The age -- and with it the configured
+  "Maximum age since last garbage collection" levels and the
+  `oposs_pbs_gc_age` metric -- was only evaluated when the newest run had
+  ended `OK`. A datastore whose GC aborts and is retried nightly therefore
+  kept those levels permanently inactive, precisely the case they exist for:
+  on a production server this hid the fact that nothing had been collected for
+  168 days behind a recent, failed attempt. The failed attempt and the age of
+  the last success are now reported as the two separate facts they are.
 
 ## 1.2.1 - 2026-09-02
 ### Changed

@@ -162,3 +162,27 @@ def test_retain_matching_with_no_jobs_left_clears_the_type():
              limit=10, now=2000)
     h.retain_matching("syncjob", [])
     assert h.latest("syncjob", lambda w: True) is None
+
+
+def test_task_history_remembers_the_last_successful_run_separately():
+    """A failing run must not erase when the job last actually worked --
+    otherwise a nightly GC that aborts every time looks the same as one that
+    failed once last night."""
+    h = u.TaskHistory()
+    h.absorb(GC, [_task(GC, "main", 1000, 1100, "OK")], limit=10, now=2000)
+    h.absorb(GC, [_task(GC, "main", 5000, 5100, "unknown")], limit=10, now=6000)
+    assert h.latest(GC, lambda w: w == "main")["status"] == "unknown"
+    assert h.latest_ok(GC, lambda w: w == "main")["endtime"] == 1100
+
+
+def test_last_successful_run_advances_on_a_new_success():
+    h = u.TaskHistory()
+    h.absorb(GC, [_task(GC, "main", 1000, 1100, "OK"),
+                  _task(GC, "main", 5000, 5100, "OK")], limit=10, now=6000)
+    assert h.latest_ok(GC, lambda w: w == "main")["endtime"] == 5100
+
+
+def test_latest_ok_is_none_when_nothing_ever_succeeded():
+    h = u.TaskHistory()
+    h.absorb(GC, [_task(GC, "main", 1000, 1100, "unknown")], limit=10, now=2000)
+    assert h.latest_ok(GC, lambda w: w == "main") is None

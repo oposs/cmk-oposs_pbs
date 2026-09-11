@@ -27,7 +27,7 @@ metric_oposs_pbs_backup_count = Metric(name="oposs_pbs_backup_count",
 metric_oposs_pbs_dedup_factor = Metric(name="oposs_pbs_dedup_factor",
     title=Title("Deduplication factor"), unit=_FACTOR, color=Color.PURPLE)
 metric_oposs_pbs_gc_age = Metric(name="oposs_pbs_gc_age",
-    title=Title("Time since last GC"), unit=_SECONDS, color=Color.CYAN)
+    title=Title("Time since last successful GC"), unit=_SECONDS, color=Color.CYAN)
 metric_oposs_pbs_sync_age = Metric(name="oposs_pbs_sync_age",
     title=Title("Time since last sync"), unit=_SECONDS, color=Color.CYAN)
 metric_oposs_pbs_verify_age = Metric(name="oposs_pbs_verify_age",

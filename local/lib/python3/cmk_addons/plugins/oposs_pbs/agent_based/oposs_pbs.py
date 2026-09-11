@@ -176,44 +176,53 @@ def check_oposs_pbs_datastore(item, params, section) -> CheckResult:
                         if since else "")
         yield Result(state=State.OK, summary=f"GC running{for_how_long}")
 
+    # The failed *attempt* and the age of the last *success* are two separate
+    # facts, and both are reported. Measuring the age off the last attempt (as
+    # this did) left the configured age levels inactive for exactly the
+    # datastore they were meant to catch: one whose GC aborts and is retried
+    # nightly, so the newest run is always recent and always failed.
     status = gc.get("status")
-    if status is None:
-        state = _STATE_CHOICE.get(params.get("no_gc_state", "unknown"),
-                                  State.UNKNOWN)
-        # "Never ran" may only be claimed when the agent reached the end of the
-        # task history. Anything less means "none within reach" -- the old
-        # wording ("GC not run yet") stated the strong claim on the weak
-        # evidence. A section from an older agent carries neither field, so an
-        # absent one counts as "reach unknown".
-        if not gc.get("history_truncated", True):
-            yield Result(state=state, summary="GC never run",
-                         details=("PBS holds no garbage collection task for "
-                                  "this datastore at all."))
-        elif gc.get("history_start"):
-            reach = render.timespan(max(0.0, time.time() - gc["history_start"]))
-            yield Result(
-                state=state,
-                summary=f"No GC run in the last {reach} of task history",
-                details=("No garbage collection run was found in the task "
-                         "history read from PBS. Older runs may exist beyond "
-                         "it; raise the task limit in the special agent rule "
-                         "to look further back."))
-        else:
-            yield Result(state=state, summary="No GC run found in task history")
-    elif status == "OK":
-        end = gc.get("endtime")
-        if end:
-            age = max(0.0, time.time() - end)
-            yield from check_levels(
-                age, levels_upper=params.get("gc_age_levels"),
-                metric_name="oposs_pbs_gc_age", label="Last GC",
-                render_func=render.timespan)
-        else:
-            yield Result(state=State.OK, summary="GC ok")
-    else:
+    if status is not None and status != "OK":
         when = f" at {render.datetime(gc['endtime'])}" if gc.get("endtime") else ""
-        yield Result(state=State.WARN,
-                     summary=f"Last GC failed{when}: {status}")
+        yield Result(state=State.WARN, summary=f"Last GC failed{when}: {status}")
+
+    last_ok = gc.get("last_ok_endtime")
+    if last_ok:
+        yield from check_levels(
+            max(0.0, time.time() - last_ok),
+            levels_upper=params.get("gc_age_levels"),
+            metric_name="oposs_pbs_gc_age", label="Last successful GC",
+            render_func=render.timespan)
+        return
+
+    state = _STATE_CHOICE.get(params.get("no_gc_state", "unknown"), State.UNKNOWN)
+    if status is not None:
+        # GC has run; none of the runs within reach succeeded.
+        yield Result(
+            state=state, summary="No successful GC run in task history",
+            details=("Garbage collection has run for this datastore, but no "
+                     "run within the task history read from PBS completed "
+                     "successfully."))
+    # "Never ran" may only be claimed when the agent reached the end of the
+    # task history. Anything less means "none within reach" -- the old wording
+    # ("GC not run yet") stated the strong claim on the weak evidence. A
+    # section from an older agent carries neither field, so an absent one
+    # counts as "reach unknown".
+    elif not gc.get("history_truncated", True):
+        yield Result(state=state, summary="GC never run",
+                     details=("PBS holds no garbage collection task for this "
+                              "datastore at all."))
+    elif gc.get("history_start"):
+        reach = render.timespan(max(0.0, time.time() - gc["history_start"]))
+        yield Result(
+            state=state,
+            summary=f"No GC run in the last {reach} of task history",
+            details=("No garbage collection run was found in the task history "
+                     "read from PBS. Older runs may exist beyond it; raise the "
+                     "task limit in the special agent rule to look further "
+                     "back."))
+    else:
+        yield Result(state=state, summary="No GC run found in task history")
 
 
 check_plugin_oposs_pbs_datastore = CheckPlugin(
