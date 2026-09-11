@@ -563,3 +563,129 @@ def test_budget_does_not_start_a_refresh_that_cannot_finish():
     assert b.allow() is True
     b.record(4.0)          # 2s left, less than a refresh costs
     assert b.allow() is False
+
+
+# --- task history: reach and incremental polling ----------------------------
+
+from fake_pbs import task_route  # noqa: E402
+
+
+def _task_calls(client):
+    return [p for path, p in client.calls if path.endswith("/tasks")]
+
+
+def test_tasks_are_fetched_per_worker_type_not_as_one_global_list():
+    c = FakePbs(sample_routes(NOW))
+    collect.collect(c, _opts(), cache.StateCache({}), NOW)
+    calls = _task_calls(c)
+    assert calls, "no task query was made"
+    assert all("typefilter" in p for p in calls), \
+        "an unfiltered task fetch reaches back only as far as task volume allows"
+    assert {p["typefilter"] for p in calls} == set(collect.u.TASK_TYPES)
+
+
+def test_gc_is_found_although_far_outside_the_global_task_window():
+    """Regression: one global list truncated at --task-limit put the last GC
+    out of reach on a busy server, and the datastore check then claimed
+    "GC not run yet" for a datastore whose GC runs fine."""
+    routes = sample_routes(NOW)
+    gc_run = {"worker_type": "garbage_collection", "worker_id": "main",
+              "starttime": NOW - 30 * DAY, "endtime": NOW - 30 * DAY + 100,
+              "status": "OK"}
+    flood = [{"worker_type": "backup", "worker_id": f"vm/{i}",
+              "starttime": NOW - i, "endtime": NOW - i + 1, "status": "OK"}
+             for i in range(1, 2001)]
+    routes["/nodes/localhost/tasks"] = task_route([gc_run] + flood)
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    gc = host["oposs_pbs_datastore"]["main"]["gc"]
+    assert gc["status"] == "OK"
+    assert gc["endtime"] == NOW - 30 * DAY + 100
+
+
+def test_second_run_polls_incrementally_from_the_cached_watermark():
+    routes = sample_routes(NOW)
+    st = cache.StateCache({})
+    collect.collect(FakePbs(routes), _opts(), st, NOW)
+    c2 = FakePbs(routes)
+    collect.collect(c2, _opts(), st, NOW + 600)
+    gc_call = [p for p in _task_calls(c2)
+               if p["typefilter"] == "garbage_collection"][0]
+    assert gc_call["since"] == NOW, \
+        "a warm run must ask only for what started since the last poll"
+
+
+def test_incremental_poll_reaches_back_to_a_still_running_job():
+    """A GC that started before the last poll and is still running must stay
+    within reach, or its completion is never observed."""
+    routes = sample_routes(NOW)
+    routes["/nodes/localhost/tasks"] = task_route([
+        {"worker_type": "garbage_collection", "worker_id": "main",
+         "starttime": NOW - 5 * DAY},
+    ])
+    st = cache.StateCache({})
+    collect.collect(FakePbs(routes), _opts(), st, NOW)
+    c2 = FakePbs(routes)
+    collect.collect(c2, _opts(), st, NOW + 600)
+    gc_call = [p for p in _task_calls(c2)
+               if p["typefilter"] == "garbage_collection"][0]
+    assert gc_call["since"] == NOW - 5 * DAY
+
+
+def test_gc_state_reports_running_since_and_history_reach():
+    routes = sample_routes(NOW)
+    routes["/nodes/localhost/tasks"] = task_route([
+        {"worker_type": "garbage_collection", "worker_id": "main",
+         "starttime": NOW - 2 * DAY, "endtime": NOW - 2 * DAY + 60, "status": "OK"},
+        {"worker_type": "garbage_collection", "worker_id": "main",
+         "starttime": NOW - 3600},
+    ])
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    gc = host["oposs_pbs_datastore"]["main"]["gc"]
+    assert gc["running"] is True and gc["running_since"] == NOW - 3600
+    assert gc["status"] == "OK" and gc["endtime"] == NOW - 2 * DAY + 60
+    assert gc["history_truncated"] is False
+
+
+def test_gc_never_run_is_distinguished_from_out_of_reach():
+    routes = sample_routes(NOW)
+    routes["/nodes/localhost/tasks"] = task_route([])
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    gc = host["oposs_pbs_datastore"]["main"]["gc"]
+    assert gc["status"] is None
+    assert gc["history_truncated"] is False      # the whole history was seen
+    assert gc["history_start"] is None
+
+
+def test_gc_out_of_reach_reports_the_horizon_it_looked_back_to():
+    routes = sample_routes(NOW)
+    routes["/nodes/localhost/tasks"] = task_route([
+        {"worker_type": "garbage_collection", "worker_id": "other",
+         "starttime": NOW - i * 3600, "endtime": NOW - i * 3600 + 60,
+         "status": "OK"} for i in range(1, 11)])
+    opts = _opts()
+    opts.task_limit = 10
+    host, _ = collect.collect(FakePbs(routes), opts, cache.StateCache({}), NOW)
+    gc = host["oposs_pbs_datastore"]["main"]["gc"]
+    assert gc["status"] is None
+    assert gc["history_truncated"] is True
+    assert gc["history_start"] == NOW - 10 * 3600
+
+
+def test_findings_of_deleted_jobs_and_datastores_are_dropped():
+    """The cache must not accumulate a finding per job that ever existed."""
+    routes = sample_routes(NOW)
+    routes["/nodes/localhost/tasks"] = task_route([
+        {"worker_type": "garbage_collection", "worker_id": "main",
+         "starttime": NOW - 100, "endtime": NOW - 50, "status": "OK"},
+        {"worker_type": "garbage_collection", "worker_id": "removed-store",
+         "starttime": NOW - 100, "endtime": NOW - 50, "status": "OK"},
+        {"worker_type": "syncjob", "worker_id": "r1:rs:main::s1",
+         "starttime": NOW - 200, "endtime": NOW - 100, "status": "OK"},
+        {"worker_type": "syncjob", "worker_id": "r1:rs:main::deleted",
+         "starttime": NOW - 200, "endtime": NOW - 100, "status": "OK"},
+    ])
+    st = cache.StateCache({})
+    collect.collect(FakePbs(routes), _opts(), st, NOW)
+    kept = st.get(collect.u.TASK_CACHE_KEY)
+    assert set(kept["garbage_collection"]["workers"]) == {"main"}
+    assert set(kept["syncjob"]["workers"]) == {"r1:rs:main::s1"}

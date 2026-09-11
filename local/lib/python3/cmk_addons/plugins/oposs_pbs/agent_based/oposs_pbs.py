@@ -66,7 +66,8 @@ def discover_oposs_pbs_server(section) -> DiscoveryResult:
         yield Service()
 
 
-_STATE_CHOICE = {"ok": State.OK, "warn": State.WARN, "crit": State.CRIT}
+_STATE_CHOICE = {"ok": State.OK, "warn": State.WARN, "crit": State.CRIT,
+                 "unknown": State.UNKNOWN}
 
 
 def check_oposs_pbs_server(params, section) -> CheckResult:
@@ -165,11 +166,41 @@ def check_oposs_pbs_datastore(item, params, section) -> CheckResult:
         yield Metric("oposs_pbs_dedup_factor", factor)
         yield Result(state=State.OK, notice=f"Deduplication factor {factor:.2f}")
 
+    # A GC in flight is reported alongside the last completed run, never
+    # instead of it: a GC that aborts and is retried every night would
+    # otherwise hide behind its own retry, and a datastore whose GC has not
+    # succeeded in months looks healthy for as long as one keeps running.
+    since = gc.get("running_since")
     if gc.get("running"):
-        yield Result(state=State.OK, summary="GC running")
-    elif gc.get("status") is None:
-        yield Result(state=State.UNKNOWN, summary="GC not run yet")
-    elif gc.get("status") == "OK":
+        for_how_long = (f" for {render.timespan(max(0.0, time.time() - since))}"
+                        if since else "")
+        yield Result(state=State.OK, summary=f"GC running{for_how_long}")
+
+    status = gc.get("status")
+    if status is None:
+        state = _STATE_CHOICE.get(params.get("no_gc_state", "unknown"),
+                                  State.UNKNOWN)
+        # "Never ran" may only be claimed when the agent reached the end of the
+        # task history. Anything less means "none within reach" -- the old
+        # wording ("GC not run yet") stated the strong claim on the weak
+        # evidence. A section from an older agent carries neither field, so an
+        # absent one counts as "reach unknown".
+        if not gc.get("history_truncated", True):
+            yield Result(state=state, summary="GC never run",
+                         details=("PBS holds no garbage collection task for "
+                                  "this datastore at all."))
+        elif gc.get("history_start"):
+            reach = render.timespan(max(0.0, time.time() - gc["history_start"]))
+            yield Result(
+                state=state,
+                summary=f"No GC run in the last {reach} of task history",
+                details=("No garbage collection run was found in the task "
+                         "history read from PBS. Older runs may exist beyond "
+                         "it; raise the task limit in the special agent rule "
+                         "to look further back."))
+        else:
+            yield Result(state=state, summary="No GC run found in task history")
+    elif status == "OK":
         end = gc.get("endtime")
         if end:
             age = max(0.0, time.time() - end)
@@ -180,7 +211,9 @@ def check_oposs_pbs_datastore(item, params, section) -> CheckResult:
         else:
             yield Result(state=State.OK, summary="GC ok")
     else:
-        yield Result(state=State.WARN, summary=f"GC failed: {gc.get('status')}")
+        when = f" at {render.datetime(gc['endtime'])}" if gc.get("endtime") else ""
+        yield Result(state=State.WARN,
+                     summary=f"Last GC failed{when}: {status}")
 
 
 check_plugin_oposs_pbs_datastore = CheckPlugin(
@@ -190,7 +223,8 @@ check_plugin_oposs_pbs_datastore = CheckPlugin(
     check_function=check_oposs_pbs_datastore,
     check_ruleset_name="oposs_pbs_datastore",
     check_default_parameters={"usage_levels": ("fixed", (80.0, 90.0)),
-                              "gc_age_levels": ("no_levels", None)})
+                              "gc_age_levels": ("no_levels", None),
+                              "no_gc_state": "unknown"})
 
 
 # --- Jobs: sync / verify / prune --------------------------------------------

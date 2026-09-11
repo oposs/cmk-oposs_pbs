@@ -16,6 +16,25 @@ class FakePbs:
 DAY = 86400
 
 
+def task_route(tasks):
+    """Emulate ``GET /nodes/{node}/tasks``.
+
+    Verified against PBS 4.2: the list comes back newest-first, ``typefilter``
+    is an *exact* ``worker_type`` match (not a substring -- "verify" does not
+    match "verificationjob"), and it is applied BEFORE ``limit``, so a filtered
+    query reaches as far back as PBS keeps history no matter how busy the
+    server is. ``limit=0`` means no limit.
+    """
+    def route(params):
+        sel = sorted(tasks, key=lambda t: t["starttime"], reverse=True)
+        tf = params.get("typefilter")
+        if tf:
+            sel = [t for t in sel if t.get("worker_type") == tf]
+        limit = int(params.get("limit") or 0)
+        return sel[:limit] if limit else sel
+    return route
+
+
 def sample_routes(now):
     return {
         "/nodes": [{"node": "pbs01"}],

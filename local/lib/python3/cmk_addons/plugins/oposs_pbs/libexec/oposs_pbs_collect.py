@@ -131,46 +131,86 @@ def select_datastores(stores: list[str], opts: Options) -> list[str]:
     return [s for s in stores if ok(s)]
 
 
-def _gc_state(tasks, store):
-    running = u.task_running(tasks, "garbage_collection", lambda w: w == store)
-    latest = u.latest_task(tasks, "garbage_collection", lambda w: w == store)
+def _fetch_task_history(client, node, opts, history, now) -> None:
+    """Top up the task findings, one query per worker type.
+
+    PBS truncates the task list at `limit` after applying `typefilter`, so a
+    filtered query reaches as far back as PBS keeps history however busy the
+    server is -- unlike the single unfiltered fetch this replaces, whose reach
+    shrank as task volume grew until the last GC fell out of it.
+
+    A type whose history is already fully known is polled with `since`, so a
+    warm run transfers a handful of rows instead of the whole archive.
+    """
+    for wtype in u.TASK_TYPES:
+        params: dict = {"typefilter": wtype, "limit": opts.task_limit}
+        since = history.since_anchor(wtype)
+        if since is not None:
+            params["since"] = since
+        try:
+            tasks = client.get(f"/nodes/{node}/tasks", params=params) or []
+        except Exception as exc:
+            # Best-effort: keep the findings we already have rather than
+            # letting one failed query blank out every job of this type.
+            _warn(f"task query for {wtype!r} failed, "
+                  f"state kept from last run: {exc}")
+            continue
+        history.absorb(wtype, tasks, limit=opts.task_limit, now=now)
+
+
+def _gc_state(history, store):
+    latest = history.latest("garbage_collection", lambda w: w == store)
+    running_since = history.running("garbage_collection", lambda w: w == store)
     return {
         "status": latest["status"] if latest else None,
         "endtime": latest["endtime"] if latest else None,
-        "running": running,
+        "running": running_since is not None,
+        "running_since": running_since,
+        # Whether "no run found" means "never ran" or only "not within reach":
+        # the check must not claim the former when it can only prove the latter.
+        "history_truncated": history.truncated("garbage_collection"),
+        "history_start": history.oldest_seen("garbage_collection"),
     }
 
 
-def _job_last_run(tasks, worker_type, match):
-    latest = u.latest_task(tasks, worker_type, match)
-    running = u.task_running(tasks, worker_type, match)
+def _job_last_run(history, worker_type, match):
+    latest = history.latest(worker_type, match)
+    running = history.running(worker_type, match)
     return ({"status": latest["status"], "endtime": latest["endtime"]} if latest
-            else None), running
+            else None), running is not None
 
 
-def _collect_jobs(client, tasks):
-    sync = []
+def _collect_jobs(client, history):
+    sync, verify, prune = [], [], []
+    # Findings are kept across runs, so a job that is deleted in PBS would keep
+    # its own entry alive forever; collecting the matchers lets the cache be
+    # pruned to what is still configured.
+    matchers: dict = {"syncjob": [], "verificationjob": [], "prunejob": []}
     for j in client.get("/config/sync") or []:
         if not j.get("id"):
             continue
-        lr, run = _job_last_run(tasks, "syncjob",
-                                lambda w, i=j["id"]: w.rsplit(":", 1)[-1] == i)
+        match = (lambda w, i=j["id"]: w.rsplit(":", 1)[-1] == i)
+        matchers["syncjob"].append(match)
+        lr, run = _job_last_run(history, "syncjob", match)
         sync.append({**j, "last_run": lr, "running": run})
-    verify = []
     for j in client.get("/config/verify") or []:
         if not j.get("id"):
             continue
-        lr, run = _job_last_run(tasks, "verificationjob",
-                                lambda w, i=j["id"]: w.rsplit(":", 1)[-1] == i)
+        match = (lambda w, i=j["id"]: w.rsplit(":", 1)[-1] == i)
+        matchers["verificationjob"].append(match)
+        lr, run = _job_last_run(history, "verificationjob", match)
         verify.append({**j, "last_run": lr, "running": run})
-    prune = []
     for j in client.get("/config/prune") or []:
         if not j.get("id"):
             continue
         store, ns = j.get("store", ""), j.get("ns", "") or ""
         wid = f"{store}:{ns}" if ns else store
-        lr, run = _job_last_run(tasks, "prunejob", lambda w, x=wid: w == x)
+        match = (lambda w, x=wid: w == x)
+        matchers["prunejob"].append(match)
+        lr, run = _job_last_run(history, "prunejob", match)
         prune.append({**j, "last_run": lr, "running": run})
+    for wtype, ms in matchers.items():
+        history.retain_matching(wtype, ms)
     return {"sync": sync, "verify": verify, "prune": prune}
 
 
@@ -242,17 +282,16 @@ def collect(client, opts: Options, cache: StateCache, now: int,
         version = None
 
     stores = select_datastores(stores_raw, opts)
-    try:
-        tasks = client.get(f"/nodes/{node}/tasks",
-                           params={"limit": opts.task_limit}) or []
-    except Exception as exc:  # task history is best-effort; degrade job/GC state
-        _warn(f"task list fetch failed, job/GC state degraded: {exc}")
-        tasks = []
+    # Job and GC state is carried across runs, so a failed query costs freshness
+    # rather than the state itself (see u.TaskHistory).
+    history = u.TaskHistory(cache.get(u.TASK_CACHE_KEY))
+    _fetch_task_history(client, node, opts, history, now)
+    cache.put(u.TASK_CACHE_KEY, history.as_state())
 
     host["oposs_pbs_server"] = {"reachable": True, "version": version,
                                "node": node, "datastore_count": len(stores)}
     try:
-        host["oposs_pbs_jobs"] = _collect_jobs(client, tasks)
+        host["oposs_pbs_jobs"] = _collect_jobs(client, history)
     except Exception as exc:
         _warn(f"job config fetch failed: {exc}")
         host["oposs_pbs_jobs"] = {"sync": [], "verify": [], "prune": []}
@@ -269,12 +308,14 @@ def collect(client, opts: Options, cache: StateCache, now: int,
     for store in stores:
         # One unreachable/slow datastore must not sink the others.
         try:
-            _collect_store(client, store, opts, cache, tasks, now,
+            _collect_store(client, store, opts, cache, history, now,
                            datastores, piggyback, budget, saver, unmapped,
                            stats)
         except Exception as exc:
             _warn(f"datastore {store!r} collection failed, skipped: {exc}")
         saver.flush()
+    history.retain("garbage_collection", stores)
+    cache.put(u.TASK_CACHE_KEY, history.as_state())
     host["oposs_pbs_datastore"] = datastores
     # vm/ct backups with no resolved guest name land on their VMID; surface them
     # so the operator can fix the PVE notes-template.
@@ -313,7 +354,7 @@ class _Saver:
             self._last = time.monotonic()
 
 
-def _collect_store(client, store, opts, cache, tasks, now, datastores,
+def _collect_store(client, store, opts, cache, history, now, datastores,
                    piggyback, budget, saver, unmapped, stats):
     # /status feeds only the datastore section (capacity, GC). It says nothing
     # about the backup groups, so its failure must not cost every guest of this
@@ -339,7 +380,7 @@ def _collect_store(client, store, opts, cache, tasks, now, datastores,
         backup_count += sum(int(g.get("backup-count", 0)) for g in groups)
         if store in opts.no_piggyback:
             continue
-        verify_activity = u.latest_verify_activity(tasks, store)
+        verify_activity = history.latest_verify_activity(store)
         for g in groups:
             # Ignored groups are dropped before any cache lookup or /snapshots
             # call, so suppression is also a cost saving. Datastore group and
@@ -412,7 +453,7 @@ def _collect_store(client, store, opts, cache, tasks, now, datastores,
         "total": status.get("total"), "used": status.get("used"),
         "avail": status.get("avail"),
         "group_count": group_count, "backup_count": backup_count,
-        "gc": {**_gc_state(tasks, store),
+        "gc": {**_gc_state(history, store),
                "index_data_bytes": gcs.get("index-data-bytes"),
                "disk_bytes": gcs.get("disk-bytes")},
     }

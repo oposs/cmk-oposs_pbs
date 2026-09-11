@@ -8,10 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+- **The state reported when no garbage collection run is known is now
+  configurable** (`PBS datastore` rule, "State when no garbage collection run
+  is known"). A freshly created datastore legitimately has no GC run yet, and
+  a permanent UNKNOWN for it was not useful. Default stays UNKNOWN.
 
 ### Changed
+- **Job and garbage collection findings are now remembered between agent
+  runs** and topped up incrementally. Each worker type is queried on its own
+  (`typefilter`), so its reach no longer depends on how busy the server is,
+  and once a type's whole history has been read the next run fetches only what
+  started since. On a live PBS with 13732 tasks this cut a warm run from 21 s
+  to 0.6 s. The incremental query deliberately reaches back to the start of any
+  run still in flight: PBS filters `since` on a task's *start* time, so a
+  multi-hour garbage collection would otherwise never be seen finishing.
+- The "Task list fetch limit" is now a per-worker-type limit. It bounds how far
+  the first run can see; later runs are incremental.
 
 ### Fixed
+- **A datastore no longer reports "GC not run yet" for a garbage collection
+  that runs fine.** Every job and GC state was derived from one global task
+  list truncated at the task limit. That window reaches back only as far as
+  overall task volume allows, so on a busy server the last GC run fell out of
+  it and the check turned "I did not find one" into "it never ran". The check
+  now says which of the two it means, and only claims "GC never run" when the
+  agent actually reached the end of the task history.
+- **A running garbage collection no longer hides the state of the last
+  completed one.** "GC running" was reported *instead* of the last run, so a
+  datastore whose GC had not succeeded for months looked healthy for as long as
+  one kept running -- including the case where GC aborts and is retried nightly.
+  The last completed run is now always evaluated, and the running one is
+  reported alongside it with how long it has been going.
 
 ## 1.2.1 - 2026-09-02
 ### Changed

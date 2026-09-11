@@ -42,7 +42,17 @@ def _agent_form() -> Dictionary:
                     title=Title("Pattern"),
                     predefined_help_text=MatchingScope.PREFIX))),
             "task_limit": DictElement(parameter_form=Integer(
-                title=Title("Task list fetch limit"), prefill=DefaultValue(1000))),
+                title=Title("Task list fetch limit"),
+                help_text=Help(
+                    "Maximum number of tasks read per worker type (garbage "
+                    "collection, sync, verification, prune). Job and GC "
+                    "findings are remembered between runs: once a type's whole "
+                    "history has been read in one go, later runs fetch only "
+                    "what has started since. A type that keeps more tasks than "
+                    "this limit is re-read in full every run instead, so on a "
+                    "server with a long task history raise this until the "
+                    "first run covers it. 0 means no limit."),
+                prefill=DefaultValue(1000))),
             "timeout": DictElement(parameter_form=Integer(
                 title=Title("Per-request HTTP timeout"), unit_symbol="s",
                 help_text=Help(
@@ -142,10 +152,26 @@ def _datastore_form() -> Dictionary:
         "gc_age_levels": DictElement(parameter_form=SimpleLevels(
             title=Title("Maximum age since last garbage collection"),
             level_direction=LevelDirection.UPPER,
+            help_text=Help(
+                "Age of the last *completed* garbage collection. It is checked "
+                "while another garbage collection is running too, so a run that "
+                "keeps aborting and being retried cannot hide the fact that no "
+                "run has succeeded for a long time."),
             form_spec_template=TimeSpan(displayed_magnitudes=[TimeMagnitude.DAY,
                                                               TimeMagnitude.HOUR]),
             prefill_levels_type=DefaultValue(LevelsType.NONE),
             prefill_fixed_levels=DefaultValue((0.0, 0.0)))),
+        "no_gc_state": DictElement(parameter_form=SingleChoice(
+            title=Title("State when no garbage collection run is known"),
+            help_text=Help(
+                "Reported when PBS holds no garbage collection task for this "
+                "datastore at all. A freshly created datastore is the normal "
+                "case, so set this to OK if such datastores should not alarm."),
+            elements=[SingleChoiceElement(name="unknown", title=Title("UNKNOWN")),
+                      SingleChoiceElement(name="ok", title=Title("OK")),
+                      SingleChoiceElement(name="warn", title=Title("WARN")),
+                      SingleChoiceElement(name="crit", title=Title("CRIT"))],
+            prefill=DefaultValue("unknown"))),
     })
 
 
