@@ -15,7 +15,7 @@ class Params(BaseModel):
     cacert: str | None = None
     datastore_include: list[str] = []
     datastore_exclude: list[str] = []
-    task_limit: int = 1000
+    task_limit: int = 3000
     timeout: int | None = None
     refresh_budget: int | None = None
     piggyback_template: str = "{guest}"

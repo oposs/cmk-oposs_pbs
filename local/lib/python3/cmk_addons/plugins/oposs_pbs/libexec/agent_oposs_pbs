@@ -30,7 +30,7 @@ def parse_args(argv):
     p.add_argument("--cacert")
     p.add_argument("--include-datastore", action="append", default=[])
     p.add_argument("--exclude-datastore", action="append", default=[])
-    p.add_argument("--task-limit", type=int, default=1000)
+    p.add_argument("--task-limit", type=int, default=3000)
     p.add_argument("--timeout", type=int, default=60)  # per-request HTTP timeout
     # Wall-clock ceiling on expensive /snapshots refreshes per run; 0 = unlimited.
     # Kept below Checkmk's cmc_check_timeout (60s by default): a run that

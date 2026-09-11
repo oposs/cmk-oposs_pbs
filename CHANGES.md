@@ -22,8 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to 0.6 s. The incremental query deliberately reaches back to the start of any
   run still in flight: PBS filters `since` on a task's *start* time, so a
   multi-hour garbage collection would otherwise never be seen finishing.
-- The "Task list fetch limit" is now a per-worker-type limit. It bounds how far
-  the first run can see; later runs are incremental.
+- The "Task list fetch limit" is now a per-worker-type limit, and its default
+  rose from 1000 to 3000. It bounds how far the first run can see; later runs
+  are incremental, but only once a type's whole history has been read in one
+  go. On the two production servers this was measured against, the busiest
+  type held 1138 and 1308 tasks, so 3000 covers them with room to grow.
 
 ### Fixed
 - **A datastore no longer reports "GC not run yet" for a garbage collection

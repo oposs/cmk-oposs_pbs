@@ -52,7 +52,7 @@ def _agent_form() -> Dictionary:
                     "this limit is re-read in full every run instead, so on a "
                     "server with a long task history raise this until the "
                     "first run covers it. 0 means no limit."),
-                prefill=DefaultValue(1000))),
+                prefill=DefaultValue(3000))),
             "timeout": DictElement(parameter_form=Integer(
                 title=Title("Per-request HTTP timeout"), unit_symbol="s",
                 help_text=Help(
