@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 1.3.0 - 2026-09-12
+### New
 - **The state reported when no garbage collection run is known is now
   configurable** (`PBS datastore` rule, "State when no garbage collection run
   is known"). A freshly created datastore legitimately has no GC run yet, and
