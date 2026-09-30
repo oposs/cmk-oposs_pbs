@@ -704,3 +704,36 @@ def test_gc_state_exposes_when_gc_last_actually_succeeded():
     gc = host["oposs_pbs_datastore"]["main"]["gc"]
     assert gc["status"] == "unknown"
     assert gc["last_ok_endtime"] == NOW - 100 * DAY + 900
+
+
+def test_gc_state_carries_the_datastores_own_record():
+    routes = sample_routes(NOW)
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    gc = host["oposs_pbs_datastore"]["main"]["gc"]
+    assert gc["record_state"] == "OK"
+    assert gc["record_endtime"] == NOW - 3500
+
+
+def test_datastore_record_outlives_a_lost_task_history():
+    """The task list is rebuilt from the agent cache and truncated at a limit;
+    the datastore's own gc-status record is neither, so it is what the check
+    falls back on when the history holds nothing."""
+    routes = sample_routes(NOW)
+    routes["/nodes/localhost/tasks"] = task_route([])
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    gc = host["oposs_pbs_datastore"]["main"]["gc"]
+    assert gc["status"] is None                 # history says nothing
+    assert gc["record_state"] == "OK"           # the datastore does
+    assert gc["record_endtime"] == NOW - 3500
+
+
+def test_gc_record_fields_are_absent_when_status_is_unavailable():
+    """A failed /status call degrades capacity and GC reporting together; the
+    record fields must then be absent rather than guessed at."""
+    routes = sample_routes(NOW)
+    del routes["/admin/datastore/main/status"]
+    routes["/admin/datastore/main/status"] = lambda p: (_ for _ in ()).throw(
+        RuntimeError("boom"))
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    gc = host["oposs_pbs_datastore"]["main"]["gc"]
+    assert gc["record_state"] is None and gc["record_endtime"] is None

@@ -158,7 +158,7 @@ def _fetch_task_history(client, node, opts, history, now) -> None:
         history.absorb(wtype, tasks, limit=opts.task_limit, now=now)
 
 
-def _gc_state(history, store):
+def _gc_state(history, store, gcs=None):
     latest = history.latest("garbage_collection", lambda w: w == store)
     last_ok = history.latest_ok("garbage_collection", lambda w: w == store)
     running_since = history.running("garbage_collection", lambda w: w == store)
@@ -175,6 +175,14 @@ def _gc_state(history, store):
         # the check must not claim the former when it can only prove the latter.
         "history_truncated": history.truncated("garbage_collection"),
         "history_start": history.oldest_seen("garbage_collection"),
+        # The datastore keeps its own record of its last garbage collection
+        # (the `gc-status` object of /admin/datastore/{store}/status). Unlike
+        # the task list it is not truncated at a limit and survives a lost
+        # agent cache, so it is the better witness of "has GC ever run here":
+        # the check must not claim "never ran" against a datastore that says
+        # otherwise.
+        "record_state": (gcs or {}).get("last-run-state"),
+        "record_endtime": (gcs or {}).get("last-run-endtime"),
     }
 
 
@@ -458,7 +466,7 @@ def _collect_store(client, store, opts, cache, history, now, datastores,
         "total": status.get("total"), "used": status.get("used"),
         "avail": status.get("avail"),
         "group_count": group_count, "backup_count": backup_count,
-        "gc": {**_gc_state(history, store),
+        "gc": {**_gc_state(history, store, gcs),
                "index_data_bytes": gcs.get("index-data-bytes"),
                "disk_bytes": gcs.get("disk-bytes")},
     }

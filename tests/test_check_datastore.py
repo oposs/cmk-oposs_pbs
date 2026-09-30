@@ -172,3 +172,58 @@ def test_successful_gc_reports_its_age_as_before(monkeypatch):
     assert [r.state for r in gc_results] == [State.OK]
     assert "Last successful GC" in _summaries(res)
     assert "failed" not in _summaries(res)
+
+
+def test_datastore_record_shows_a_success_the_task_history_missed(monkeypatch):
+    """Regression: the check claimed "never ran" from an empty task history
+    while the datastore's own gc-status recorded a successful run. The task
+    list is truncated at a limit and is rebuilt from scratch when the agent
+    cache is lost; gc-status is neither."""
+    res = _run(_gc_section(history_truncated=True, history_start=NOW - DAY,
+                           record_state="OK", record_endtime=NOW - 3 * DAY),
+               monkeypatch=monkeypatch)
+    text = _summaries(res)
+    assert "never" not in text.lower()
+    assert "No GC run" not in text          # the record settles it
+    assert "Last successful GC" in text and "3 days" in text
+    assert "oposs_pbs_gc_age" in [r.name for r in res if isinstance(r, Metric)]
+
+
+def test_datastore_record_of_a_failed_run_is_reported_as_a_failure(monkeypatch):
+    """A record of a failed run must read as "failed", not as "never ran"."""
+    res = _run(_gc_section(history_truncated=False,
+                           record_state="unknown", record_endtime=NOW - DAY),
+               monkeypatch=monkeypatch)
+    text = _summaries(res)
+    assert "never" not in text.lower()
+    assert "Last GC failed" in text and "unknown" in text
+
+
+def test_datastore_record_does_not_override_the_task_history(monkeypatch):
+    """Where the task history did find a successful run, its timing wins: the
+    record only fills a gap, it never replaces fresher evidence."""
+    res = _run(_gc_section(status="OK", endtime=NOW - 3600,
+                           last_ok_endtime=NOW - 3600,
+                           record_state="OK", record_endtime=NOW - 90 * DAY),
+               monkeypatch=monkeypatch)
+    text = _summaries(res)
+    assert "90 days" not in text
+    assert "1 hour" in text
+
+
+def test_absent_record_is_harmless(monkeypatch):
+    """A section from an agent that does not send the record fields must
+    behave exactly as before."""
+    res = _run(_gc_section(history_truncated=False), monkeypatch=monkeypatch)
+    assert "never" in _summaries(res).lower()
+
+
+def test_record_ok_without_an_end_time_still_beats_never_ran(monkeypatch):
+    """A successful run we cannot date is still a run: "GC ok" is the truth,
+    "never ran" is not."""
+    res = _run(_gc_section(history_truncated=False,
+                           record_state="OK", record_endtime=None),
+               monkeypatch=monkeypatch)
+    text = _summaries(res)
+    assert "never" not in text.lower()
+    assert "GC ok" in text

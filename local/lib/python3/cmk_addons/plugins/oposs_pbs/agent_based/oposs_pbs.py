@@ -186,7 +186,16 @@ def check_oposs_pbs_datastore(item, params, section) -> CheckResult:
         when = f" at {render.datetime(gc['endtime'])}" if gc.get("endtime") else ""
         yield Result(state=State.WARN, summary=f"Last GC failed{when}: {status}")
 
+    record_state = gc.get("record_state")
+    record_ok = record_state == "OK"
     last_ok = gc.get("last_ok_endtime")
+    # The task history can hold no successful run while the datastore's own
+    # gc-status record still shows one: that history is truncated at the task
+    # limit and is rebuilt from scratch whenever the agent cache is lost.
+    # `last-run-state: OK` on the record means the newest completed run
+    # succeeded, so its endtime *is* the last success.
+    if not last_ok and record_ok:
+        last_ok = gc.get("record_endtime")
     if last_ok:
         yield from check_levels(
             max(0.0, time.time() - last_ok),
@@ -203,6 +212,25 @@ def check_oposs_pbs_datastore(item, params, section) -> CheckResult:
             details=("Garbage collection has run for this datastore, but no "
                      "run within the task history read from PBS completed "
                      "successfully."))
+    elif record_ok:
+        # The record proves a run succeeded but gives no end time to measure
+        # an age from. Report the fact rather than "never ran".
+        yield Result(state=State.OK, summary="GC ok",
+                     details=("The datastore records a successful garbage "
+                              "collection but gave no end time for it."))
+    elif record_state is not None:
+        # The task history held nothing at all, yet the datastore records a
+        # run -- and it did not succeed, or the branch above would have taken
+        # it. Reporting "never ran" here would be the same strong claim on
+        # weak evidence as the wording this replaced.
+        when = (f" at {render.datetime(gc['record_endtime'])}"
+                if gc.get("record_endtime") else "")
+        yield Result(
+            state=state,
+            summary=f"Last GC failed{when}: {record_state}",
+            details=("PBS holds no garbage collection task for this datastore "
+                     "in the task history read, but the datastore itself "
+                     "records one."))
     # "Never ran" may only be claimed when the agent reached the end of the
     # task history. Anything less means "none within reach" -- the old wording
     # ("GC not run yet") stated the strong claim on the weak evidence. A

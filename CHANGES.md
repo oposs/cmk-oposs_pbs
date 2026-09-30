@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- **A datastore no longer claims "GC never run" against its own record of a
+  run.** v1.3.0 made the task history the only witness of whether garbage
+  collection has run, and only claimed "never" once it had read that history
+  to the end. But the history is rebuilt from the agent cache and truncated at
+  the task limit, so a lost cache or a short retention left a datastore whose
+  GC runs on schedule reading as never having run. The datastore already keeps
+  an unambiguous record of the last run -- the `gc-status` object returned
+  with `/admin/datastore/{store}/status`, which the agent was already
+  fetching for the deduplication figures. That record is now carried in the
+  section and settles the question: a `last-run-state` of `OK` supplies the
+  last successful run the history missed, and any other state is reported as
+  a failure instead of as "never ran". The task history still decides
+  everything it can see; the record only fills the gap.
 
 ## 1.3.0 - 2026-09-12
 ### New

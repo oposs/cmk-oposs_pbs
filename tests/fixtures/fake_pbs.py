@@ -43,7 +43,8 @@ def sample_routes(now):
         "/admin/datastore/main/status": {
             "total": 1000, "used": 250, "avail": 750,
             "gc-status": {"index-data-bytes": 4000, "disk-bytes": 1000,
-                          "upid": "UPID:pbs01:GC"},
+                          "upid": "UPID:pbs01:GC",
+                          "last-run-state": "OK", "last-run-endtime": now - 3500},
         },
         "/admin/datastore/main/namespace": [{"ns": ""}],
         "/admin/datastore/main/groups": [
