@@ -53,6 +53,23 @@ def test_median_interval_recent_ignores_older_gaps():
     assert u.median_interval(times, recent=3) == day
 
 
+
+def test_median_interval_two_runs_per_night():
+    """Two runs a night (00:00 and 02:15) must not make the cadence 2 h 15 min,
+    or the group goes stale every afternoon."""
+    short, long_ = 8100, 86400 - 8100
+    times, t = [0], 0
+    for i in range(8):
+        t += long_ if i % 2 == 0 else short   # newest gap is the short one
+        times.append(t)
+    assert u.median_interval(times, recent=7) == long_
+
+
+def test_median_interval_one_missed_run_keeps_daily_cadence():
+    day = 86400
+    times = [0, day, 2 * day, 4 * day, 5 * day, 6 * day, 7 * day, 8 * day]
+    assert u.median_interval(times, recent=7) == day
+
 # --- TaskHistory: findings carried across runs ------------------------------
 
 GC = "garbage_collection"
