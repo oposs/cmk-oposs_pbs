@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+## 1.3.1 - 2026-10-04
+### Fixed
 - **A group backed up daily no longer reports `cadence ~7 days` behind a
   `keep-daily 1` / `keep-weekly 7` prune policy, which made the stale alarm
   come a week late.** The cadence now comes from the backups the agent saw
