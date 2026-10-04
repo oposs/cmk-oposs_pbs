@@ -776,3 +776,44 @@ def test_gc_state_exposes_when_gc_last_actually_succeeded():
     gc = host["oposs_pbs_datastore"]["main"]["gc"]
     assert gc["status"] == "unknown"
     assert gc["last_ok_endtime"] == NOW - 100 * DAY + 900
+
+
+_SYNC_JOBS = [
+    {"id": "s1", "store": "main", "remote": "r1", "remote-store": "rs",
+     "ns": "", "schedule": "daily"},
+    {"id": "p1", "store": "main", "remote": "r2", "remote-store": "ext",
+     "ns": "", "schedule": "daily", "sync-direction": "push"},
+]
+
+
+def _sync_route_pbs4(params):
+    """GET /config/sync on PBS >= 3.3: without `sync-direction` only pull jobs
+    are listed (ListSyncDirection defaults to pull); `all` lists both."""
+    want = params.get("sync-direction", "pull")
+    return [j for j in _SYNC_JOBS
+            if want == "all" or j.get("sync-direction", "pull") == want]
+
+
+class _HttpError(Exception):
+    def __init__(self, status):
+        super().__init__(f"HTTP {status}")
+        self.status = status
+
+
+def test_push_sync_jobs_are_collected():
+    routes = sample_routes(NOW)
+    routes["/config/sync"] = _sync_route_pbs4
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    assert {j["id"] for j in host["oposs_pbs_jobs"]["sync"]} == {"s1", "p1"}
+
+
+def test_sync_jobs_still_listed_on_pbs_without_sync_direction():
+    """PBS before 3.3 knows no `sync-direction` and rejects it with HTTP 400."""
+    def old_pbs(params):
+        if "sync-direction" in params:
+            raise _HttpError(400)
+        return _SYNC_JOBS[:1]
+    routes = sample_routes(NOW)
+    routes["/config/sync"] = old_pbs
+    host, _ = collect.collect(FakePbs(routes), _opts(), cache.StateCache({}), NOW)
+    assert [j["id"] for j in host["oposs_pbs_jobs"]["sync"]] == ["s1"]

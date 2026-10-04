@@ -47,3 +47,13 @@ def test_resolve_password_ref_looks_up_real_secret(tmp_path):
     ref = f"uuid-abc-123:{store}"
     assert client.resolve_password_ref(ref, _lookup=fake_lookup) == "RESOLVED-SECRET"
     assert str(seen["path"]) == str(store) and seen["id"] == "uuid-abc-123"
+
+
+@responses.activate
+def test_pbserror_carries_http_status():
+    responses.add(responses.GET, "https://pbs.example:8007/api2/json/config/sync",
+                  status=400)
+    c = client.PbsClient("pbs.example", 8007, "root@pam!mon", "x", verify=False)
+    with pytest.raises(client.PbsError) as exc:
+        c.get("/config/sync")
+    assert exc.value.status == 400

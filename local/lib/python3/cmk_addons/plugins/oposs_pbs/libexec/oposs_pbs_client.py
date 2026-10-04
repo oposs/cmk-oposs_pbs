@@ -32,7 +32,13 @@ def resolve_password_ref(value: str, *, _lookup=None) -> str:
 
 
 class PbsError(Exception):
-    """Any failure talking to the PBS API (transport or HTTP status)."""
+    """Any failure talking to the PBS API (transport or HTTP status).
+
+    `status` is the HTTP status code, or None for a transport failure."""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class PbsClient:
@@ -57,7 +63,8 @@ class PbsClient:
                 timeout=self._timeout if timeout is None else timeout)
             resp.raise_for_status()
         except requests.RequestException as exc:
-            raise PbsError(f"GET {path} failed: {exc}") from exc
+            status = exc.response.status_code if exc.response is not None else None
+            raise PbsError(f"GET {path} failed: {exc}", status) from exc
         try:
             return resp.json().get("data")
         except ValueError as exc:

@@ -206,13 +206,27 @@ def _job_last_run(history, worker_type, match):
             else None), running is not None
 
 
+def _sync_jobs(client):
+    """Configured sync jobs of both directions.
+
+    Since PBS 3.3 /config/sync lists only pull jobs unless `sync-direction` is
+    given. Older versions reject the unknown parameter with HTTP 400; they have
+    only pull jobs, so the plain listing is complete there."""
+    try:
+        return client.get("/config/sync", params={"sync-direction": "all"})
+    except Exception as exc:
+        if getattr(exc, "status", None) != 400:
+            raise
+        return client.get("/config/sync")
+
+
 def _collect_jobs(client, history):
     sync, verify, prune = [], [], []
     # Findings are kept across runs, so a job that is deleted in PBS would keep
     # its own entry alive forever; collecting the matchers lets the cache be
     # pruned to what is still configured.
     matchers: dict = {"syncjob": [], "verificationjob": [], "prunejob": []}
-    for j in client.get("/config/sync") or []:
+    for j in _sync_jobs(client) or []:
         if not j.get("id"):
             continue
         match = (lambda w, i=j["id"]: w.rsplit(":", 1)[-1] == i)

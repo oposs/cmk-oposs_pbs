@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- **Push sync jobs now get a `PBS Sync Job` service.** PBS 3.3 and later
+  list only pull jobs unless asked for both, so push jobs were never
+  discovered; older PBS versions are still read the old way. The API token
+  needs the `RemoteAudit` role on `/remote` to see any sync job. (#2)
 
 ## 1.3.1 - 2026-10-04
 ### Fixed

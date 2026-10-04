@@ -1,6 +1,6 @@
 # Proxmox Backup Server Monitoring Plugin
 
-This Checkmk plugin monitors Proxmox Backup Server (PBS) via its REST API, providing comprehensive monitoring of datastores, backup jobs, and per-guest backup freshness through piggyback integration. To use this plugin, you need an **Audit**-role API token configured on your PBS instance. For detailed design information and implementation notes, see the [design specification](docs/superpowers/specs/2026-07-07-oposs-pbs-special-agent-design.md).
+This Checkmk plugin monitors Proxmox Backup Server (PBS) via its REST API, providing comprehensive monitoring of datastores, backup jobs, and per-guest backup freshness through piggyback integration. To use this plugin, you need an **Audit**-role API token configured on your PBS instance. Sync jobs (pull and push) are listed only when the token also has the **RemoteAudit** role on `/remote`; without it PBS hides them and no `PBS Sync Job` services are discovered. For detailed design information and implementation notes, see the [design specification](docs/superpowers/specs/2026-07-07-oposs-pbs-special-agent-design.md).
 
 ## Configuration notes
 
