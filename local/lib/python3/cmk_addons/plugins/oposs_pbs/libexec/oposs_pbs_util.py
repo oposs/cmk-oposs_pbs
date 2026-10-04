@@ -17,6 +17,12 @@ def median_interval(times: list[int], recent: int | None = None) -> int | None:
     survive -- win, while a single missed run among daily backups still
     leaves the cadence at one day.
 
+    Weighting alone lets one long outage win as soon as it covers more than
+    half of the window, and the observed last-backup timestamps do contain
+    outages. So a single gap that is longer than all the other gaps together
+    is left out: that is an outage, which the stale alarm exists to notice,
+    not the schedule. Two such outages within the window still win.
+
     `recent` keeps only the newest N gaps. Prune thins the old end of a
     retention into weeklies and monthlies, so a median over the whole list
     reports a cadence several times longer than the backup actually runs at,
@@ -30,6 +36,9 @@ def median_interval(times: list[int], recent: int | None = None) -> int | None:
         gaps = gaps[-recent:]
     if not gaps:
         return None
+    longest = max(gaps)
+    if len(gaps) > 1 and longest > sum(gaps) - longest:
+        gaps.remove(longest)
     half = sum(gaps) / 2
     covered = 0
     for gap in sorted(gaps):
