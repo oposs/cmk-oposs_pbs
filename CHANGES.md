@@ -31,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that the snapshot fetch is still the better guess, and the caller's default
   covers the case where neither has anything to say.
 
+- **A backup group that is backed up two or three times in quick succession
+  once a day no longer turns stale every afternoon.** With runs at 00:00 and
+  02:15 the `PBS Backups` summary showed e.g. `STALE 17 hours 56 minutes
+  (cadence ~2 hours 15 minutes)` although every night's backup had
+  succeeded; the cadence now follows the long gap (here about 21 hours 45
+  minutes), and a single long outage still does not become the cadence.
+
 ## 1.3.0 - 2026-09-12
 ### New
 - **The state reported when no garbage collection run is known is now

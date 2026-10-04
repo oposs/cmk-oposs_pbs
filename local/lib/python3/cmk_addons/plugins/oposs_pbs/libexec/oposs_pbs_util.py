@@ -1,14 +1,27 @@
 """Pure helpers for the PBS collector: intervals, dedup, task matching."""
 from __future__ import annotations
 import re
-from statistics import median
 from typing import Callable
 
 _VERIFY_TYPES = {"verificationjob", "verify", "verify_group", "verify_snapshot"}
 
 
 def median_interval(times: list[int], recent: int | None = None) -> int | None:
-    """Median gap between the given backup times.
+    """Time-weighted median gap between the given backup times: the gap that
+    the middle moment of the covered span falls into.
+
+    A plain median breaks when a group is backed up twice in quick succession
+    once a day (gaps alternating 2 h 15 min / 21 h 45 min): it reports the
+    short gap, so the stale alarm fires every afternoon. Weighting each gap by
+    its own length makes the long gap -- the one the group actually has to
+    survive -- win, while a single missed run among daily backups still
+    leaves the cadence at one day.
+
+    Weighting alone lets one long outage win as soon as it covers more than
+    half of the window, and the observed last-backup timestamps do contain
+    outages. So a single gap that is longer than all the other gaps together
+    is left out: that is an outage, which the stale alarm exists to notice,
+    not the schedule. Two such outages within the window still win.
 
     `recent` keeps only the newest N gaps. Prune thins the old end of a
     retention into weeklies and monthlies, so a median over the whole list
@@ -23,7 +36,16 @@ def median_interval(times: list[int], recent: int | None = None) -> int | None:
         gaps = gaps[-recent:]
     if not gaps:
         return None
-    return int(median(gaps))
+    longest = max(gaps)
+    if len(gaps) > 1 and longest > sum(gaps) - longest:
+        gaps.remove(longest)
+    half = sum(gaps) / 2
+    covered = 0
+    for gap in sorted(gaps):
+        covered += gap
+        if covered >= half:
+            return int(gap)
+    return int(max(gaps))
 
 
 def dedup_factor(index_data_bytes, disk_bytes):

@@ -53,6 +53,53 @@ def test_median_interval_recent_ignores_older_gaps():
     assert u.median_interval(times, recent=3) == day
 
 
+
+def test_median_interval_two_runs_per_night():
+    """Two runs a night (00:00 and 02:15) must not make the cadence 2 h 15 min,
+    or the group goes stale every afternoon."""
+    short, long_ = 8100, 86400 - 8100
+    times, t = [0], 0
+    for i in range(8):
+        t += long_ if i % 2 == 0 else short   # newest gap is the short one
+        times.append(t)
+    assert u.median_interval(times, recent=7) == long_
+
+
+def test_median_interval_one_missed_run_keeps_daily_cadence():
+    day = 86400
+    times = [0, day, 2 * day, 4 * day, 5 * day, 6 * day, 7 * day, 8 * day]
+    assert u.median_interval(times, recent=7) == day
+
+def test_median_interval_three_runs_per_night():
+    """Three runs a night (00:00, 01:00, 02:15): most gaps are short, but the
+    group still only has to survive the long one."""
+    day, gaps = 86400, [3600, 4500, 86400 - 8100]
+    times, t = [0], 0
+    for i in range(9):
+        t += gaps[i % 3]
+        times.append(t)
+    assert u.median_interval(times, recent=7) == day - 8100
+
+
+def test_median_interval_one_long_outage_does_not_become_the_cadence():
+    """Observed timestamps keep the outage gap. A single gap that is longer than
+    all the others together is an outage, not the schedule -- otherwise the
+    cadence becomes the outage length and the stale alarm stays silent until
+    the gap has aged out of the window."""
+    day = 86400
+    start = 0
+    times = [start, start + 3757, start + 16517]         # three runs one evening
+    resumed = start + 200 * day
+    times += [resumed + i * day for i in range(5)]       # then daily again
+    assert u.median_interval(times, recent=7) == day
+
+
+def test_median_interval_daily_with_a_ten_day_outage():
+    day = 86400
+    times = [0, day, 2 * day, 12 * day, 13 * day, 14 * day, 15 * day, 16 * day]
+    assert u.median_interval(times, recent=7) == day
+
+
 # --- TaskHistory: findings carried across runs ------------------------------
 
 GC = "garbage_collection"
