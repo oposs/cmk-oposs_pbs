@@ -12,25 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
-- **A backup group no longer reports a cadence measured against the retention
-  policy.** The cadence came from the gaps between the snapshots a fetch can
-  see -- and retention decides which those are. v1.3.0 already restricted the
-  median to the newest gaps, on the assumption that prune only thins the old
-  end of a retention. But a `keep-daily 1` policy keeps one backup per day, so
-  a group backed up every day is spaced a week apart in the retained set once
-  `keep-weekly 7` is also in play: the *recent* end is weekly too, the median
-  says seven days, and the stale alarm arrives a week late. Measured on a
-  production PBS: two groups backed up daily reporting a 168-hour cadence, and
-  a third whose alarm cycled on and off because its retained snapshots were
-  three taken within five hours of each other plus the latest one.
-
-  The agent already records when backups actually land -- each distinct
-  last-backup value it observes, before any prune can thin it away. That is a
-  record of the schedule rather than of the retention, so it now decides the
-  cadence once enough observations have accumulated to form a median. Below
-  that the snapshot fetch is still the better guess, and the caller's default
-  covers the case where neither has anything to say.
-
+- **A group backed up daily no longer reports `cadence ~7 days` behind a
+  `keep-daily 1` / `keep-weekly 7` prune policy, which made the stale alarm
+  come a week late.** The cadence now comes from the backups the agent saw
+  land, not from the snapshots that prune kept. This also stops the stale
+  alarm that turned on and off for groups whose few remaining snapshots were
+  taken within hours of each other.
 - **A backup group that is backed up two or three times in quick succession
   once a day no longer turns stale every afternoon.** With runs at 00:00 and
   02:15 the `PBS Backups` summary showed e.g. `STALE 17 hours 56 minutes
