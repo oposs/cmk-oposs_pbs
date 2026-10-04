@@ -39,16 +39,17 @@ def host_label_oposs_pbs_backup(section) -> HostLabelGenerator:
         oposs_pbs/backup:
             "yes" if this host has at least one PBS backup.
         oposs_pbs/datastore:
-            the datastore holding the (first-seen) backup for this host.
+            the datastores holding backups of this host, sorted and joined
+            with ",". Taking the first record instead made the label flip
+            between runs for a guest on two datastores, since the record
+            order is not stable, and every flip raised a discovery WARN (#3).
     """
     if not section:
         return
     yield HostLabel("oposs_pbs/backup", "yes")
-    for rec in section:
-        store = rec.get("datastore")
-        if store:
-            yield HostLabel("oposs_pbs/datastore", store)
-            return
+    stores = sorted({rec["datastore"] for rec in section if rec.get("datastore")})
+    if stores:
+        yield HostLabel("oposs_pbs/datastore", ",".join(stores))
 
 
 agent_section_oposs_pbs_server = AgentSection(name="oposs_pbs_server", parse_function=parse_json)

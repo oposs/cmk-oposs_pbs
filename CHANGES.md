@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list only pull jobs unless asked for both, so push jobs were never
   discovered; older PBS versions are still read the old way. The API token
   needs the `RemoteAudit` role on `/remote` to see any sync job. (#2)
+- **The `oposs_pbs/datastore` host label no longer flips between two values
+  for a guest backed up to more than one datastore**, which raised a
+  `Check_MK Discovery` WARN on every flip. The label now lists all such
+  datastores, sorted and comma-separated (for example
+  `oposs_pbs/datastore:extern,extern2`); label conditions that match one
+  datastore name need adjusting for these hosts. (#3)
 
 ## 1.3.1 - 2026-10-04
 ### Fixed

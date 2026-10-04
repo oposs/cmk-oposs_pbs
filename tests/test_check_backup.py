@@ -65,6 +65,15 @@ def test_backup_host_labels():
     assert ("oposs_pbs/datastore", "backup-store-01") in pairs
 
 
+def test_datastore_label_lists_every_datastore_independent_of_order():
+    """A guest backed up to two datastores must not flip its label between runs
+    as the record order changes (#3)."""
+    a = [rec(datastore="extern2"), rec(datastore="extern"), rec(datastore="extern")]
+    for section in (a, list(reversed(a))):
+        labels = {l.name: l.value for l in m.host_label_oposs_pbs_backup(section)}
+        assert labels["oposs_pbs/datastore"] == "extern,extern2"
+
+
 def test_backup_host_labels_empty_section():
     assert list(m.host_label_oposs_pbs_backup([])) == []
 
