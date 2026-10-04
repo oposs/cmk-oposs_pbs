@@ -29,6 +29,10 @@ _SAVE_INTERVAL_S = 2.0
 # of a retention into weeklies and monthlies; a median over the whole list
 # reports a cadence several times too long and delays the stale alarm.
 _CADENCE_SAMPLES = 7
+# Observed last-backup timestamps needed before their gaps are preferred over
+# the ones read from the retained snapshots. One gap is not a median and two
+# are only their mean; below this the snapshot fetch is the better guess.
+_MIN_OBSERVATIONS = 3
 
 
 def _warn(msg: str) -> None:
@@ -85,14 +89,31 @@ def _merge_observations(prev: dict | None, last_backup: int) -> list[int]:
 
 
 def _effective_interval(entry: dict, observations: list[int]):
-    """Prefer the interval from a real snapshot fetch; otherwise fall back to
-    the cadence implied by observed last-backup timestamps."""
+    """How often this backup group is meant to run.
+
+    Two sources are available and they disagree in a way that matters. The
+    retained snapshots are whatever the last fetch could see -- but retention
+    decides which those are. A prune policy that thins old history into
+    weeklies and monthlies also thins the recent end once the daily backups
+    are one-per-day by design, so the gaps between them measure the policy
+    rather than the schedule: a group backed up every day reads as a weekly
+    one, and its stale alarm arrives a week late. Only the fetch of a
+    never-pruned datastore is free of that bias.
+
+    The observed last-backup timestamps record when backups actually landed,
+    whatever has been pruned since -- the agent sees each new backup before
+    any prune can thin it away. So they are the better witness of the
+    schedule, and win once enough have accumulated to form a median.
+
+    Below that, the snapshot fetch is still the better guess, and with nothing
+    at all the caller falls back to its own default interval.
+    """
+    obs_iv = u.median_interval(observations, recent=_CADENCE_SAMPLES)
+    if obs_iv is not None and len(observations) >= _MIN_OBSERVATIONS:
+        return obs_iv, True
     if entry.get("interval_known"):
         return entry.get("interval"), True
-    iv = u.median_interval(observations, recent=_CADENCE_SAMPLES)
-    if iv is not None:
-        return iv, True
-    return None, False
+    return obs_iv, obs_iv is not None
 
 
 @dataclass

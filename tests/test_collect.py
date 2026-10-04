@@ -449,6 +449,78 @@ def test_cadence_measured_from_recent_snapshots_not_pruned_history():
     assert pig[0][1]["interval"] == DAY
 
 
+def test_cadence_not_stretched_by_a_weekly_thinned_retention():
+    """Regression: the cadence came from the gaps between the snapshots a fetch
+    can see, but retention decides which those are. `keep-weekly 7` leaves the
+    *recent* end weekly too -- one daily backup survives per day, so a group
+    backed up every day is spaced a week apart in the retained set. It read as
+    weekly and its stale alarm came a week late. The observed last-backup
+    timestamps are recorded before any prune can thin them and show the
+    schedule as it actually runs."""
+    weekly = sorted(NOW - 100 - DAY * 7 * i for i in range(1, 9))
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/snapshots"] = [
+        _snap(t, size=1, comment="web01") for t in weekly + [NOW - 100]]
+
+    # the fetch on its own says "weekly"
+    _, from_snap = collect.collect(FakePbs(routes), _opts(),
+                                   cache.StateCache({}), NOW)
+    assert from_snap[0][1]["interval"] == 7 * DAY
+
+    # ... but the agent has watched the backups land daily
+    st = cache.StateCache({})
+    for i in range(14, 0, -1):
+        r = sample_routes(NOW)
+        r["/admin/datastore/main/groups"] = [
+            {"backup-type": "vm", "backup-id": "100", "last-backup": NOW - DAY * i,
+             "backup-count": i, "comment": "web01"}]
+        collect.collect(FakePbs(r), _opts(), st, NOW, budget=_FakeBudget(0))
+    _, pig = collect.collect(FakePbs(routes), _opts(), st, NOW)
+    assert pig[0][1]["interval"] == DAY
+
+
+def test_sparse_observations_still_yield_to_the_snapshot_fetch():
+    """Two observations give one gap, and one gap is not a median -- it is whatever
+    happened to separate two backups, outage included. Until enough have been
+    watched, the snapshot fetch remains the better guess."""
+    weekly = sorted(NOW - 100 - DAY * 7 * i for i in range(1, 9))
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/snapshots"] = [
+        _snap(t, size=1, comment="web01") for t in weekly + [NOW - 100]]
+    st = cache.StateCache({})
+    # one observed backup only; the run below adds the second and last one
+    r = sample_routes(NOW)
+    r["/admin/datastore/main/groups"] = [
+        {"backup-type": "vm", "backup-id": "100", "last-backup": NOW - DAY,
+         "backup-count": 1, "comment": "web01"}]
+    collect.collect(FakePbs(r), _opts(), st, NOW, budget=_FakeBudget(0))
+    # groups now report `NOW - 100` -> two observations, a single gap
+    _, pig = collect.collect(FakePbs(routes), _opts(), st, NOW)
+    assert pig[0][1]["interval"] == 7 * DAY        # not the single observed gap
+
+
+def test_resumed_backups_outvote_a_long_outage():
+    """A group that ran three times one evening, went quiet for months and then
+    resumed daily is a daily group. The outage is what the check exists to
+    notice -- it must not be absorbed into the expected cadence."""
+    quiet_start = NOW - 200 * DAY
+    clustered = [quiet_start, quiet_start + 3757, quiet_start + 16517]
+    resumed = [NOW - DAY * i for i in range(4, 0, -1)]
+    routes = sample_routes(NOW)
+    routes["/admin/datastore/main/snapshots"] = [
+        _snap(t, size=1, comment="web01") for t in clustered + [NOW - 100]]
+
+    st = cache.StateCache({})
+    for last in clustered + resumed:
+        r = sample_routes(NOW)
+        r["/admin/datastore/main/groups"] = [
+            {"backup-type": "vm", "backup-id": "100", "last-backup": last,
+             "backup-count": 1, "comment": "web01"}]
+        collect.collect(FakePbs(r), _opts(), st, NOW, budget=_FakeBudget(0))
+    _, pig = collect.collect(FakePbs(routes), _opts(), st, NOW)
+    assert pig[0][1]["interval"] == DAY
+
+
 # --- an unresolved guest name must not be cached as fresh -------------------
 
 def test_unresolved_guest_name_is_retried_on_the_next_run():
