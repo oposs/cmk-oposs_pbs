@@ -43,6 +43,10 @@ metric_oposs_pbs_backup_age = Metric(name="oposs_pbs_backup_age",
     title=Title("Backup age"), unit=_SECONDS, color=Color.ORANGE)
 metric_oposs_pbs_backup_size = Metric(name="oposs_pbs_backup_size",
     title=Title("Protected data size"), unit=_BYTES, color=Color.BLUE)
+metric_oposs_pbs_backups_total = Metric(name="oposs_pbs_backups_total",
+    title=Title("Backup groups monitored"), unit=_COUNT, color=Color.BLUE)
+metric_oposs_pbs_backups_unhealthy = Metric(name="oposs_pbs_backups_unhealthy",
+    title=Title("Backup groups unhealthy"), unit=_COUNT, color=Color.RED)
 
 graph_oposs_pbs_datastore = Graph(
     name="oposs_pbs_datastore", title=Title("Datastore usage"),
@@ -54,6 +58,10 @@ graph_oposs_pbs_backups = Graph(
     name="oposs_pbs_backups", title=Title("Backups"),
     simple_lines=["oposs_pbs_backup_count", "oposs_pbs_group_count"],
     optional=["oposs_pbs_group_count"])
+
+graph_oposs_pbs_backups_health = Graph(
+    name="oposs_pbs_backups_health", title=Title("Backup groups health"),
+    simple_lines=["oposs_pbs_backups_total", "oposs_pbs_backups_unhealthy"])
 
 perfometer_oposs_pbs_usage = Perfometer(
     name="oposs_pbs_datastore_used_pct",
