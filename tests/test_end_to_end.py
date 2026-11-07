@@ -283,6 +283,12 @@ def test_metrics_of_the_per_host_services_are_defined(output, at_now):
     assert names <= DEFINED_METRICS
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "BUG: PBS Backups emits oposs_pbs_backups_total and "
+    "oposs_pbs_backups_unhealthy, which graphing/oposs_pbs.py never defines"))
+def test_every_emitted_metric_is_defined_in_graphing(output, at_now):
+    assert _all_metric_names(output) <= DEFINED_METRICS
+
 
 def test_two_runs_per_night_keep_a_daily_cadence(run_agent, monkeypatch):
     """PR #7: a group backed up twice in quick succession every night must not

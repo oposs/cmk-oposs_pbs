@@ -56,3 +56,15 @@ def test_jobs_without_an_id_are_not_discovered():
     assert list(m.discover_oposs_pbs_sync(jobs)) == []
     assert list(m.discover_oposs_pbs_verify(jobs)) == []
     assert list(m.discover_oposs_pbs_sync({})) == []
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "BUG: a running sync/verify/prune job hides the failure and the age of its "
+    "last completed run (the GC check was fixed for this, the job checks were not)"))
+def test_a_running_job_still_reports_its_failed_last_run(monkeypatch):
+    monkeypatch.setattr(m.time, "time", lambda: NOW)
+    jobs = {"verify": [{"id": "v1", "store": "main", "running": True,
+                        "last_run": {"status": "bad chunks", "endtime": NOW - 100 * 86400}}]}
+    res = list(m.check_oposs_pbs_verify(
+        "main", {"age_levels": ("fixed", (86400.0, 7 * 86400.0))}, jobs))
+    assert State.CRIT in [r.state for r in res]
