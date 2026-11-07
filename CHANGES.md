@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New
 - The package carries the release version in its check plugin (`__version__`).
+- The special agent from the MKP carries the release version in
+  `agent_oposs_pbs`.
 
 ### Changed
 

@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,3 +47,32 @@ def test_release_writes_version_into_check(tmp_path):
     module = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(module)
     assert module.__version__ == "9.8.7"
+
+
+AGENT = ROOT / "local/lib/python3/cmk_addons/plugins/oposs_pbs/libexec/agent_oposs_pbs"
+
+
+def test_agent_carries_the_released_version():
+    assert re.search(rf'^__version__ = "{re.escape(_released_version())}"$',
+                     AGENT.read_text(), flags=re.MULTILINE)
+
+
+def test_release_writes_version_into_agent(tmp_path):
+    """The special agent has no .py suffix and imports its libexec helpers,
+    which conftest.py puts on sys.path."""
+    from importlib.machinery import SourceFileLoader
+    copy = tmp_path / "agent_oposs_pbs"
+    copy.write_text(_stamp(_spec(AGENT), AGENT.read_text(), "9.8.7"))
+    loader = SourceFileLoader("stamped_agent", str(copy))
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    assert module.__version__ == "9.8.7"
+
+
+def test_agent_is_executable_in_git():
+    # Checkmk runs the special agent as a program; without the executable
+    # bit it fails with "Permission denied". The MKP build takes the mode
+    # from git.
+    out = subprocess.run(["git", "ls-files", "-s", AGENT.name], cwd=AGENT.parent,
+                         capture_output=True, text=True, check=True).stdout
+    assert out.split()[0] == "100755"
