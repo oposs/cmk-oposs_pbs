@@ -2,7 +2,12 @@
 from cmk.graphing.v1 import Title
 from cmk.graphing.v1.graphs import Graph
 from cmk.graphing.v1.metrics import (
-    Color, DecimalNotation, IECNotation, Metric, TimeNotation, Unit,
+    Color,
+    DecimalNotation,
+    IECNotation,
+    Metric,
+    TimeNotation,
+    Unit,
 )
 from cmk.graphing.v1.perfometers import Closed, FocusRange, Perfometer
 

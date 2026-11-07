@@ -1,5 +1,6 @@
+from cmk.agent_based.v2 import Metric, State
 from conftest import load_module
-from cmk.agent_based.v2 import State, Metric
+
 m = load_module("agent_based/oposs_pbs.py", "oposs_pbs_checks")
 
 NOW = 1_000_000

@@ -1,6 +1,8 @@
 import json
-from conftest import load_module
+
 from cmk.agent_based.v2 import State
+from conftest import load_module
+
 m = load_module("agent_based/oposs_pbs.py", "oposs_pbs_checks")
 
 

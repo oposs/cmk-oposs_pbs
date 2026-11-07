@@ -20,7 +20,7 @@ from cmk.agent_based.v2 import HostLabel, Metric, Result, Service, State
 from conftest import load_module
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "fixtures"))
-from fake_pbs import DAY, FakePbs, sample_routes, task_route  # noqa: E402
+from fake_pbs import DAY, FakePbs, sample_routes, task_route
 
 m = load_module("agent_based/oposs_pbs.py", "oposs_pbs_checks_e2e")
 g = load_module("graphing/oposs_pbs.py", "oposs_pbs_graphing_e2e")
@@ -154,7 +154,7 @@ def test_datastore_usage_levels_from_agent_output(run_agent, at_now):
     for used, want in ((800, State.WARN), (900, State.CRIT), (799, State.OK)):
         routes["/admin/datastore/main/status"].update(used=used, avail=1000 - used)
         sec = parsed(run_agent(routes)[""], "oposs_pbs_datastore")
-        usage = list(m.check_oposs_pbs_datastore("main", params, sec))[0]
+        usage = next(iter(m.check_oposs_pbs_datastore("main", params, sec)))
         assert usage.state is want, used
 
 

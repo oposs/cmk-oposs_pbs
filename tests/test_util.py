@@ -1,4 +1,5 @@
 from conftest import load_module
+
 u = load_module("libexec/oposs_pbs_util.py", "oposs_pbs_util")
 
 

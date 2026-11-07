@@ -1,4 +1,5 @@
 from conftest import load_module
+
 cache = load_module("libexec/oposs_pbs_cache.py", "oposs_pbs_cache")
 
 

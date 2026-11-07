@@ -1,7 +1,9 @@
 """Pure helpers for the PBS collector: intervals, dedup, task matching."""
 from __future__ import annotations
+
 import re
-from typing import Callable
+from collections.abc import Callable
+from itertools import pairwise
 
 _VERIFY_TYPES = {"verificationjob", "verify", "verify_group", "verify_snapshot"}
 
@@ -31,7 +33,7 @@ def median_interval(times: list[int], recent: int | None = None) -> int | None:
     if len(times) < 2:
         return None
     ordered = sorted(times)
-    gaps = [b - a for a, b in zip(ordered, ordered[1:]) if b > a]
+    gaps = [b - a for a, b in pairwise(ordered) if b > a]
     if recent:
         gaps = gaps[-recent:]
     if not gaps:
