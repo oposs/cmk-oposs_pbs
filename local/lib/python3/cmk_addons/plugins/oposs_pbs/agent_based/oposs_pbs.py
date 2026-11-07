@@ -20,6 +20,10 @@ from cmk.agent_based.v2 import (
     render,
 )
 
+# Create release PR writes the released version here (version_files in
+# .github/repo-infra.json)
+__version__ = "1.3.2"
+
 
 def parse_json(string_table):
     if not string_table or not string_table[0]:
