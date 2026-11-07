@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- The `PBS Backups` service now shows its two metrics with a title and a
+  count unit, as "Backup groups monitored" and "Backup groups unhealthy",
+  and draws them in the graph "Backup groups health". Before, Checkmk listed
+  them only under their raw names `oposs_pbs_backups_total` and
+  `oposs_pbs_backups_unhealthy`.
 
 ## 1.3.2 - 2026-10-05
 ### Fixed

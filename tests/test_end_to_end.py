@@ -277,15 +277,6 @@ def _all_metric_names(output):
     return names
 
 
-def test_metrics_of_the_per_host_services_are_defined(output, at_now):
-    names = _all_metric_names(output) - {"oposs_pbs_backups_total",
-                                         "oposs_pbs_backups_unhealthy"}
-    assert names <= DEFINED_METRICS
-
-
-@pytest.mark.xfail(strict=True, reason=(
-    "BUG: PBS Backups emits oposs_pbs_backups_total and "
-    "oposs_pbs_backups_unhealthy, which graphing/oposs_pbs.py never defines"))
 def test_every_emitted_metric_is_defined_in_graphing(output, at_now):
     assert _all_metric_names(output) <= DEFINED_METRICS
 
