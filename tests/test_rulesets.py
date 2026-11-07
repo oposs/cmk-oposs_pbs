@@ -78,3 +78,18 @@ def test_check_rulesets_use_the_condition_their_service_needs():
         if isinstance(spec, CheckParameters):
             want = HostCondition if spec.name in itemless else HostAndItemCondition
             assert isinstance(spec.condition, want), spec.name
+
+
+def test_every_check_plugin_names_a_ruleset_that_fits_its_defaults():
+    """A check_ruleset_name without a rule spec leaves the rule without effect;
+    a default the form does not offer cannot be changed in the GUI."""
+    from cmk.agent_based.v2 import CheckPlugin
+    checks = load_module("agent_based/oposs_pbs.py", "oposs_pbs_checks_rs")
+    specs = {spec.name: spec for name, spec in vars(rs).items()
+             if isinstance(spec, CheckParameters)}
+    plugins = [p for p in vars(checks).values() if isinstance(p, CheckPlugin)]
+    assert len(plugins) == 7
+    for plugin in plugins:
+        spec = specs[plugin.check_ruleset_name]
+        assert set(plugin.check_default_parameters) <= set(spec.parameter_form().elements), \
+            plugin.name
