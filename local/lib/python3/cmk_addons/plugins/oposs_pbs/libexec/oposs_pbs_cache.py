@@ -1,5 +1,6 @@
 """Per-host JSON state cache gating expensive /snapshots calls."""
 from __future__ import annotations
+
 import json
 import os
 import tempfile
@@ -14,7 +15,7 @@ class StateCache:
         self._d: dict = data or {}
 
     @classmethod
-    def load(cls, path: str) -> "StateCache":
+    def load(cls, path: str) -> StateCache:
         try:
             with open(path, encoding="utf-8") as fh:
                 return cls(json.load(fh))
@@ -46,6 +47,4 @@ class StateCache:
             return True  # pre-guest-mapping cache: refresh once to learn the name
         if entry.get("last_backup") != last_backup:
             return True
-        if entry.get("verify_checked_at", 0) < verify_activity:
-            return True
-        return False
+        return entry.get("verify_checked_at", 0) < verify_activity

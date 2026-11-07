@@ -1,5 +1,6 @@
 """Collect PBS state via REST and shape it into Checkmk sections + piggyback."""
 from __future__ import annotations
+
 import re
 import sys
 import time
@@ -146,9 +147,7 @@ def select_datastores(stores: list[str], opts: Options) -> list[str]:
     def ok(name: str) -> bool:
         if opts.include and not any(re.search(p, name) for p in opts.include):
             return False
-        if any(re.search(p, name) for p in opts.exclude):
-            return False
-        return True
+        return not any(re.search(p, name) for p in opts.exclude)
     return [s for s in stores if ok(s)]
 
 
@@ -170,7 +169,7 @@ def _fetch_task_history(client, node, opts, history, now) -> None:
             params["since"] = since
         try:
             tasks = client.get(f"/nodes/{node}/tasks", params=params) or []
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- best effort, see _warn
             # Best-effort: keep the findings we already have rather than
             # letting one failed query blank out every job of this type.
             _warn(f"task query for {wtype!r} failed, "
@@ -263,7 +262,7 @@ def _namespaces(client, store):
     out = [""]
     try:
         entries = client.get(f"/admin/datastore/{store}/namespace") or []
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- best effort, see _warn
         _warn(f"namespace listing for {store!r} failed, "
               f"root namespace only: {exc}")
         return out
@@ -303,21 +302,21 @@ def _refresh_group(client, store, ns, group, now, timeout=None):
 
 
 def collect(client, opts: Options, cache: StateCache, now: int,
-            budget: "RefreshBudget | None" = None, save=None):
+            budget: RefreshBudget | None = None, save=None):
     if budget is None:
         budget = RefreshBudget(None)
     host: dict = {}
     node = node_name(client)
     try:
         stores_raw = [d["store"] for d in (client.get("/admin/datastore") or [])]
-    except Exception as exc:  # unreachable / auth failure
+    except Exception as exc:  # unreachable / auth failure  # noqa: BLE001
         host["oposs_pbs_server"] = {"reachable": False, "error": str(exc)}
         return host, []
     # The version string is cosmetic, and a least-privilege token may not be
     # allowed to read it at all. Losing it must not cost us every backup group.
     try:
         version = (client.get("/version") or {}).get("version")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- best effort, see _warn
         _warn(f"version fetch failed: {exc}")
         version = None
 
@@ -332,7 +331,7 @@ def collect(client, opts: Options, cache: StateCache, now: int,
                                "node": node, "datastore_count": len(stores)}
     try:
         host["oposs_pbs_jobs"] = _collect_jobs(client, history)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- best effort, see _warn
         _warn(f"job config fetch failed: {exc}")
         host["oposs_pbs_jobs"] = {"sync": [], "verify": [], "prune": []}
 
@@ -351,7 +350,7 @@ def collect(client, opts: Options, cache: StateCache, now: int,
             _collect_store(client, store, opts, cache, history, now,
                            datastores, piggyback, budget, saver, unmapped,
                            stats)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- best effort, see _warn
             _warn(f"datastore {store!r} collection failed, skipped: {exc}")
         saver.flush()
     history.retain("garbage_collection", stores)
@@ -401,7 +400,7 @@ def _collect_store(client, store, opts, cache, history, now, datastores,
     # datastore its piggyback record.
     try:
         status = client.get(f"/admin/datastore/{store}/status") or {}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- best effort, see _warn
         _warn(f"status fetch for {store!r} failed, capacity/GC degraded: {exc}")
         status = {}
     gcs = status.get("gc-status") or {}
@@ -412,7 +411,7 @@ def _collect_store(client, store, opts, cache, history, now, datastores,
         try:
             groups = client.get(f"/admin/datastore/{store}/groups",
                                 params={"ns": ns}) or []
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- best effort, see _warn
             _warn(f"group listing for {store}/{ns} failed, "
                   f"namespace skipped: {exc}")
             continue
@@ -458,7 +457,7 @@ def _collect_store(client, store, opts, cache, history, now, datastores,
                                         "guest": guest,
                                         "observations": observations})
                         refreshed = True
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 -- best effort, see _warn
                     # Slow/failed /snapshots: keep any prior cached value (do
                     # NOT mark fresh, so needs_refresh stays true and we retry
                     # next run once PBS has warmed its manifest cache).

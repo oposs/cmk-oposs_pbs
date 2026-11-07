@@ -1,10 +1,12 @@
 import re
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent / "fixtures"))
 
 from conftest import load_module
-from fake_pbs import FakePbs, sample_routes, DAY
+from fake_pbs import DAY, FakePbs, sample_routes
+
 collect = load_module("libexec/oposs_pbs_collect.py", "oposs_pbs_collect")
 cache = load_module("libexec/oposs_pbs_cache.py", "oposs_pbs_cache")
 
@@ -191,7 +193,7 @@ def test_group_refresh_failure_reuses_cached_value():
         {"backup-type": "vm", "backup-id": "100", "last-backup": NOW,
          "backup-count": 8, "comment": "web01"}]
     c = _FailPath(routes, "/snapshots")
-    host, pig = collect.collect(c, _opts(), st, NOW)
+    _host, pig = collect.collect(c, _opts(), st, NOW)
 
     _, rec = pig[0]
     # Stale but usable cadence/size preserved from the earlier successful run.
@@ -210,7 +212,7 @@ def test_store_failure_is_isolated(capsys):
     test_datastore_status_failure_still_collects_backup_groups for why the
     whole store is no longer abandoned."""
     c = _FailPath(sample_routes(NOW), "/status")
-    host, pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
+    host, _pig = collect.collect(c, _opts(), cache.StateCache({}), NOW)
 
     assert host["oposs_pbs_server"]["reachable"] is True
     assert host["oposs_pbs_jobs"]["sync"]  # jobs still collected
@@ -256,7 +258,7 @@ def _two_group_routes(now):
 def test_budget_zero_skips_all_snapshot_calls():
     c = FakePbs(_two_group_routes(NOW))
     st = cache.StateCache({})
-    host, pig = collect.collect(c, _opts(), st, NOW, budget=_FakeBudget(0))
+    _host, pig = collect.collect(c, _opts(), st, NOW, budget=_FakeBudget(0))
 
     snap_calls = sum(1 for p, _ in c.calls if p.endswith("/snapshots"))
     assert snap_calls == 0                       # nothing expensive attempted
@@ -271,7 +273,7 @@ def test_budget_zero_skips_all_snapshot_calls():
 def test_budget_allows_partial_refresh():
     c = FakePbs(_two_group_routes(NOW))
     st = cache.StateCache({})
-    host, pig = collect.collect(c, _opts(), st, NOW, budget=_FakeBudget(1))
+    _host, pig = collect.collect(c, _opts(), st, NOW, budget=_FakeBudget(1))
 
     snap_calls = sum(1 for p, _ in c.calls if p.endswith("/snapshots"))
     assert snap_calls == 1                       # exactly one group refreshed
@@ -639,7 +641,7 @@ def test_budget_does_not_start_a_refresh_that_cannot_finish():
 
 # --- task history: reach and incremental polling ----------------------------
 
-from fake_pbs import task_route  # noqa: E402
+from fake_pbs import task_route
 
 
 def _task_calls(client):
@@ -680,8 +682,8 @@ def test_second_run_polls_incrementally_from_the_cached_watermark():
     collect.collect(FakePbs(routes), _opts(), st, NOW)
     c2 = FakePbs(routes)
     collect.collect(c2, _opts(), st, NOW + 600)
-    gc_call = [p for p in _task_calls(c2)
-               if p["typefilter"] == "garbage_collection"][0]
+    gc_call = next(p for p in _task_calls(c2)
+                   if p["typefilter"] == "garbage_collection")
     assert gc_call["since"] == NOW, \
         "a warm run must ask only for what started since the last poll"
 
@@ -698,8 +700,8 @@ def test_incremental_poll_reaches_back_to_a_still_running_job():
     collect.collect(FakePbs(routes), _opts(), st, NOW)
     c2 = FakePbs(routes)
     collect.collect(c2, _opts(), st, NOW + 600)
-    gc_call = [p for p in _task_calls(c2)
-               if p["typefilter"] == "garbage_collection"][0]
+    gc_call = next(p for p in _task_calls(c2)
+                   if p["typefilter"] == "garbage_collection")
     assert gc_call["since"] == NOW - 5 * DAY
 
 

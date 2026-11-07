@@ -1,8 +1,10 @@
 """Thin Proxmox Backup Server REST client (API-token auth)."""
 from __future__ import annotations
+
+import os
 from pathlib import Path
 from typing import Any
-import os
+
 import requests
 
 

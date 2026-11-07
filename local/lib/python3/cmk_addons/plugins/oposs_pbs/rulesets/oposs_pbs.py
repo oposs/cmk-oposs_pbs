@@ -1,12 +1,32 @@
 """GUI configuration: special-agent form and check-parameter forms."""
 from cmk.rulesets.v1 import Help, Label, Title
 from cmk.rulesets.v1.form_specs import (
-    BooleanChoice, DefaultValue, DictElement, Dictionary, Integer, LevelsType, List,
-    MatchingScope, Password, Percentage, RegularExpression, SimpleLevels, SingleChoice,
-    SingleChoiceElement, String, TimeSpan, TimeMagnitude, LevelDirection, validators,
+    BooleanChoice,
+    DefaultValue,
+    DictElement,
+    Dictionary,
+    Integer,
+    LevelDirection,
+    LevelsType,
+    List,
+    MatchingScope,
+    Password,
+    Percentage,
+    RegularExpression,
+    SimpleLevels,
+    SingleChoice,
+    SingleChoiceElement,
+    String,
+    TimeMagnitude,
+    TimeSpan,
+    validators,
 )
 from cmk.rulesets.v1.rule_specs import (
-    CheckParameters, HostAndItemCondition, HostCondition, SpecialAgent, Topic,
+    CheckParameters,
+    HostAndItemCondition,
+    HostCondition,
+    SpecialAgent,
+    Topic,
 )
 
 

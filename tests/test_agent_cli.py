@@ -136,7 +136,7 @@ def test_invalid_ignore_pattern_fails_loudly(tmp_path):
          "--token-id", "root@pam!mon", "--token-secret", "x",
          "--test-file", str(routes_file), "--cache-dir", str(tmp_path),
          "--now", str(now), "--ignore-backup", "vm/[100"],
-        text=True, capture_output=True)
+        text=True, capture_output=True, check=False)
     assert proc.returncode != 0
     assert "vm/[100" in proc.stderr
     assert proc.stdout == ""

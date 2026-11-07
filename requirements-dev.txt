@@ -1,4 +1,12 @@
+# Test-only dependencies. The Checkmk API itself is NOT listed here: pip
+# cannot install it from git (the Checkmk repository has a submodule the
+# public cannot read), so tests/conftest.py fetches it directly instead.
 pytest>=8
+
+# cmk-agent-based declares pydantic as a runtime dependency.
+pydantic>=2
+
+# The special agent talks to the PBS REST API with requests; the client
+# tests mock it with responses.
 requests>=2.31
 responses>=0.25
-pydantic>=2

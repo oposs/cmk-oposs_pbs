@@ -1,6 +1,8 @@
 import json
+
+from cmk.agent_based.v2 import Metric, State
 from conftest import load_module
-from cmk.agent_based.v2 import State, Metric
+
 m = load_module("agent_based/oposs_pbs.py", "oposs_pbs_checks")
 
 NOW = 1_000_000
@@ -34,7 +36,7 @@ def test_datastore_gc_failure_warns(monkeypatch):
     sec = json.loads(json.dumps(SECTION))
     sec["main"]["gc"]["status"] = "some error"
     res = list(m.check_oposs_pbs_datastore("main", DEFAULTS, sec))
-    assert any(r.state is State.WARN and "GC" in (r.summary or r.notice or "")
+    assert any(r.state is State.WARN and "GC" in (r.summary or r.details or "")
                for r in res if hasattr(r, "state"))
 
 
@@ -57,7 +59,7 @@ def _gc_section(**gc):
 
 
 def _summaries(results):
-    return " | ".join(r.summary or r.notice or ""
+    return " | ".join(r.summary or r.details or ""
                       for r in results if hasattr(r, "state"))
 
 
@@ -89,7 +91,7 @@ def test_gc_never_run_state_is_configurable(monkeypatch):
     params = dict(DEFAULTS, no_gc_state="ok")
     res = _run(_gc_section(), params, monkeypatch)
     gc_states = [r.state for r in res if hasattr(r, "state")
-                 and "GC" in (r.summary or r.notice or "")]
+                 and "GC" in (r.summary or r.details or "")]
     assert gc_states == [State.OK]
 
 
@@ -168,7 +170,7 @@ def test_successful_gc_reports_its_age_as_before(monkeypatch):
     res = _run(_gc_section(status="OK", endtime=NOW - 3600,
                            last_ok_endtime=NOW - 3600), params, monkeypatch)
     gc_results = [r for r in res if hasattr(r, "state")
-                  and "GC" in (r.summary or r.notice or "")]
+                  and "GC" in (r.summary or r.details or "")]
     assert [r.state for r in gc_results] == [State.OK]
     assert "Last successful GC" in _summaries(res)
     assert "failed" not in _summaries(res)

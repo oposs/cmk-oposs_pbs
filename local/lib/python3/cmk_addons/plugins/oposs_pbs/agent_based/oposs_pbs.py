@@ -1,13 +1,28 @@
 """Check plugins for the oposs_pbs special agent."""
 from __future__ import annotations
+
 import json
 import time
 
 from cmk.agent_based.v2 import (
-    AgentSection, CheckPlugin, CheckResult, DiscoveryResult, HostLabel,
-    HostLabelGenerator, Metric, Result, Service, ServiceLabel, State,
-    check_levels, render,
+    AgentSection,
+    CheckPlugin,
+    CheckResult,
+    DiscoveryResult,
+    HostLabel,
+    HostLabelGenerator,
+    Metric,
+    Result,
+    Service,
+    ServiceLabel,
+    State,
+    check_levels,
+    render,
 )
+
+# Create release PR writes the released version here (version_files in
+# .github/repo-infra.json)
+__version__ = "1.3.2"
 
 
 def parse_json(string_table):

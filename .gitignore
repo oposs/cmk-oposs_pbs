@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .venv/
 .superpowers/
+.cmk-api/
+.pytest-tmp/
