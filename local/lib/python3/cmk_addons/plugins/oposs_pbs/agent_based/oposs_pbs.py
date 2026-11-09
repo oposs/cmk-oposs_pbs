@@ -22,7 +22,7 @@ from cmk.agent_based.v2 import (
 
 # Create release PR writes the released version here (version_files in
 # .github/repo-infra.json)
-__version__ = "1.3.2"
+__version__ = "1.4.0"
 
 
 def parse_json(string_table):
