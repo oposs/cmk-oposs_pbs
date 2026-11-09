@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- **A failed verification no longer shows OK while the next run is going.**
+  While a job ran, `PBS Verify Job`, `PBS Sync Job` and `PBS Prune Job`
+  showed only `verification running` (or `sync running`, `prune running`),
+  which hid a failed last run and the age levels. They now show the running
+  job next to the result of the last finished run, e.g. `verification
+  running, Last verification failed at …: bad chunks` as CRIT, as
+  `PBS Datastore` already does for garbage collection.
 - The `PBS Backups` service now shows its two metrics with a title and a
   count unit, as "Backup groups monitored" and "Backup groups unhealthy",
   and draws them in the graph "Backup groups health". Before, Checkmk listed

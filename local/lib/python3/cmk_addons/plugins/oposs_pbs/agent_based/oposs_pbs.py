@@ -269,9 +269,11 @@ def _store_ns_item(job) -> str:
 def _check_job(job, params, kind: str, metric: str) -> CheckResult:
     if job is None:
         return
+    # A run in flight is reported alongside the last finished run, never
+    # instead of it, as for GC: a job that fails and is retried would
+    # otherwise hide its failure and its age for as long as a retry runs.
     if job.get("running"):
         yield Result(state=State.OK, summary=f"{kind} running")
-        return
     last = job.get("last_run")
     if not last:
         yield Result(state=State.OK, summary=f"No completed {kind} run yet")
