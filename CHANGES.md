@@ -8,11 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### New
+
+### Changed
+
+### Fixed
+
+## 1.4.0 - 2026-11-09
+### New
 - The package carries the release version in its check plugin (`__version__`).
 - The special agent from the MKP carries the release version in
   `agent_oposs_pbs`.
-
-### Changed
 
 ### Fixed
 - **A failed verification no longer shows OK while the next run is going.**
