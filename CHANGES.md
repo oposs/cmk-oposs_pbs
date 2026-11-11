@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- `agent_oposs_pbs --test-file` now filters the stored API answers like a
+  real PBS does, by task type, start time, limit and backup group. Before, a
+  job showed the last run of another task type, and every backup group showed
+  the size and guest name of the newest snapshot in the datastore.
 
 ## 1.4.0 - 2026-11-09
 ### New
