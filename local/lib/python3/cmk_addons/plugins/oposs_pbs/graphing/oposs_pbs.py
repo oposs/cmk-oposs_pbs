@@ -64,6 +64,6 @@ graph_oposs_pbs_backups_health = Graph(
     simple_lines=["oposs_pbs_backups_total", "oposs_pbs_backups_unhealthy"])
 
 perfometer_oposs_pbs_usage = Perfometer(
-    name="oposs_pbs_datastore_used_pct",
+    name="oposs_pbs_datastore_usage",
     focus_range=FocusRange(Closed(0), Closed(100)),
     segments=["oposs_pbs_datastore_used_pct"])
