@@ -172,3 +172,50 @@ def test_explicit_cache_dir_still_wins():
     args = agent.parse_args(["--token-id", "t", "--token-secret", "s",
                              "--cache-dir", "/somewhere/else", "pbs1"])
     assert agent._cache_path(args) == "/somewhere/else/pbs1.json"
+
+
+def _section(out, name):
+    return json.loads(out.split(f"<<<{name}:sep(0)>>>\n", 1)[1].splitlines()[0])
+
+
+def test_test_file_mode_filters_tasks_by_type(tmp_path):
+    """PBS answers each typefilter query with that worker type only. A routes
+    file that holds only a GC run must not give the prune job a last run."""
+    now = 1_000_000
+    routes = _routes(now)
+    routes["/nodes/localhost/tasks"] = [
+        t for t in routes["/nodes/localhost/tasks"]
+        if t["worker_type"] == "garbage_collection"]
+    jobs = _section(_run_routes(tmp_path, now, routes), "oposs_pbs_jobs")
+    assert jobs["prune"][0]["last_run"] is None
+
+
+def test_test_file_mode_filters_tasks_by_since_and_limit(tmp_path):
+    agent = _load_agent()
+    tasks = [{"worker_type": "garbage_collection", "starttime": s}
+             for s in (100, 300, 200)]
+    client = agent._FileClient({"/nodes/localhost/tasks": tasks})
+    got = client.get("/nodes/localhost/tasks",
+                     params={"typefilter": "garbage_collection", "limit": 1})
+    assert [t["starttime"] for t in got] == [300]
+    got = client.get("/nodes/localhost/tasks",
+                     params={"typefilter": "garbage_collection", "limit": 0,
+                             "since": 200})
+    assert [t["starttime"] for t in got] == [300, 200]
+
+
+def test_test_file_mode_filters_snapshots_by_group(tmp_path):
+    """Each backup group must see only its own snapshots, as on a real PBS."""
+    now = 1_000_000
+    routes = _routes(now)
+    routes["/admin/datastore/main/groups"].append(
+        {"backup-type": "vm", "backup-id": "101", "last-backup": now - 50,
+         "backup-count": 1})
+    routes["/admin/datastore/main/snapshots"].append(
+        {"backup-type": "vm", "backup-id": "101", "backup-time": now - 50,
+         "size": 5_000_000_000, "comment": "db01"})
+    out = _run_routes(tmp_path, now, routes)
+    assert "<<<<web01>>>>" in out
+    assert "<<<<db01>>>>" in out
+    web01 = out.split("<<<<web01>>>>\n", 1)[1]
+    assert _section(web01, "oposs_pbs_backup")["data_size"] == 41_000_000_000

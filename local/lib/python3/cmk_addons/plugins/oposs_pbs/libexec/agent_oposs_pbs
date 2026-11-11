@@ -58,10 +58,35 @@ def parse_args(argv):
 
 
 class _FileClient:
+    """Serve API paths from a JSON file of path -> response.
+
+    A list response is narrowed by the query parameters the way PBS does it,
+    so the output matches what a real query would return: tasks by exact
+    `typefilter`, start time `since` and `limit` (newest first, 0 = no
+    limit), snapshots by `backup-type` and `backup-id`."""
     def __init__(self, routes):
         self._r = routes
     def get(self, path, params=None, timeout=None):
-        return self._r.get(path)
+        data = self._r.get(path)
+        params = params or {}
+        if not isinstance(data, list):
+            return data
+        tf = params.get("typefilter")
+        if tf:
+            data = [t for t in data if t.get("worker_type") == tf]
+        if params.get("since") is not None:
+            data = [t for t in data
+                    if t.get("starttime", 0) >= int(params["since"])]
+        for key in ("backup-type", "backup-id"):
+            if params.get(key) is not None:
+                data = [s for s in data if s.get(key) == params[key]]
+        if "limit" in params:
+            data = sorted(data, key=lambda t: t.get("starttime", 0),
+                          reverse=True)
+            limit = int(params["limit"] or 0)
+            if limit:
+                data = data[:limit]
+        return data
 
 
 def _make_client(args):

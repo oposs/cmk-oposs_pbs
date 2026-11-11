@@ -35,3 +35,11 @@ def test_graphs_and_perfometers_only_use_defined_metrics():
             assert used <= METRICS, name
         elif isinstance(obj, Perfometer):
             assert set(obj.segments) <= METRICS, name
+
+
+def test_perfometer_names_differ_from_metric_names():
+    """Checkmk 3.0 keeps metrics and perfometers in one name registry: a
+    perfometer named like a metric collides with it."""
+    for name, obj in vars(g).items():
+        if isinstance(obj, Perfometer):
+            assert obj.name not in METRICS, name

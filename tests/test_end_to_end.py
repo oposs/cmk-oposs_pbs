@@ -80,8 +80,8 @@ agent = _load_agent()
 def run_agent(tmp_path, monkeypatch, capsys):
     """Run the agent against a FakePbs that answers the task list like PBS.
 
-    Not --test-file: that mode serves each path from a static JSON value and
-    ignores the query, so every typefilter would get every task.
+    Not --test-file: this fixture keeps the routes in memory and lets a test
+    see each call the agent makes.
     """
     def run(routes, *extra):
         routes = dict(routes)
