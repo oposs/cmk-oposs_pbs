@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+## 1.4.1 - 2026-11-12
+### Fixed
 - The usage perfometer of `PBS Datastore` no longer has the same name as the
   metric `oposs_pbs_datastore_used_pct`, which collides on Checkmk 3.0. The
   metric keeps its name and its graph history.
